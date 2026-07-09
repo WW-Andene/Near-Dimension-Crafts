@@ -273,11 +273,11 @@ class ARRenderer(private val perfMonitor: PerfMonitor) : GLSurfaceView.Renderer 
         }
 
         if (cmd.bodyLandmarks != null) {
-            bodySkeletonRenderer.draw(viewMatrix, projMatrix, cmd.mirrorX, camAspect, aspect, timeSec)
+            bodySkeletonRenderer.draw(viewMatrix, projMatrix, cmd.mirrorX, camAspect, aspect)
         }
 
         if (cmd.faceLandmarks != null) {
-            faceSkeletonRenderer.draw(viewMatrix, projMatrix, cmd.mirrorX, camAspect, aspect, timeSec)
+            faceSkeletonRenderer.draw(viewMatrix, projMatrix, cmd.mirrorX, camAspect, aspect)
         }
 
         perfMonitor.onFrame()

@@ -28,12 +28,16 @@ class HandRenderer {
             0,17, 17,18, 18,19, 19,20,
             5,9,  9,13, 13,17
         )
+        // Dash-cycle length in world units — hand skeleton coords span roughly
+        // -1..1, so this gives a handful of dots per bone segment.
+        private const val DASH_CYCLE_WORLD_UNITS = 0.035f
     }
     private var phongProgram  = 0
     private var basicProgram  = 0
     private var lineProgram   = 0
-    // Cyberpunk skeleton look (SKELETON mode only) — diamond glow joints + pulsing lines.
-    private var cyberLineProgram   = 0
+    // Technical HUD skeleton look (SKELETON mode only) — thin "x" cross joints,
+    // dotted/dashed connector lines, matching a mocap-telemetry reference style.
+    private var dashLineProgram    = 0
     private var cyberPointsProgram = 0
 
     private val vaos = mutableListOf<Int>()
@@ -53,18 +57,16 @@ class HandRenderer {
     private val dotsScratchVbo  = IntArray(1)
 
     // Pre-allocated direct FloatBuffer for skeleton/wireframe line and dot vertex uploads.
-    // 512 floats covers 23 connections (138) + all 21 dot vertices (63) with headroom.
+    // 512 floats covers 23 dash-line connections (184, 4 floats/vertex) or 21 dot
+    // vertices (63, 3 floats/vertex) with headroom.
     private val skeletonScratchBuf: FloatBuffer = ByteBuffer
         .allocateDirect(512 * 4)
         .order(ByteOrder.nativeOrder())
         .asFloatBuffer()
 
-    // Pre-allocated array for v11 connection line vertices (23 connections × 2 pts × 3 floats).
-    private val connScratchArr = FloatArray(23 * 6)
-
-    // Velocity-lerped color state (cyan → orange). Updated each drawSkeleton() call.
-    private var velocity: Float = 0f
-    private var prevPts:  List<Vec3>? = null
+    // Pre-allocated array for v11 connection dash-line vertices
+    // (23 connections × 2 pts × 4 floats [x,y,z,distAlongSegment]).
+    private val connScratchArr = FloatArray(23 * 8)
 
     // Cached uniform/attrib locations — populated once in init() after shader compilation.
     // glGetUniformLocation/glGetAttribLocation are synchronous driver string-hash calls.
@@ -73,7 +75,7 @@ class HandRenderer {
     private val phongLoc  = HashMap<String, Int>(32)
     private val basicLoc  = HashMap<String, Int>(8)
     private val lineLoc   = HashMap<String, Int>(8)
-    private val cyberLineLoc   = HashMap<String, Int>(8)
+    private val dashLineLoc    = HashMap<String, Int>(8)
     private val cyberPointsLoc = HashMap<String, Int>(8)
 
     private fun cacheLocations() {
@@ -101,10 +103,11 @@ class HandRenderer {
             lineLoc[name] = GLES30.glGetUniformLocation(lineProgram, name)
         lineLoc["aPosition"] = GLES30.glGetAttribLocation(lineProgram, "aPosition")
 
-        // Cyberpunk line program (adds uTime for the pulse)
-        for (name in listOf("uModel", "uView", "uProjection", "uColor", "uTime"))
-            cyberLineLoc[name] = GLES30.glGetUniformLocation(cyberLineProgram, name)
-        cyberLineLoc["aPosition"] = GLES30.glGetAttribLocation(cyberLineProgram, "aPosition")
+        // Dash-line program (adds uDashSize + aDist for the dotted-line cut)
+        for (name in listOf("uModel", "uView", "uProjection", "uColor", "uDashSize"))
+            dashLineLoc[name] = GLES30.glGetUniformLocation(dashLineProgram, name)
+        dashLineLoc["aPosition"] = GLES30.glGetAttribLocation(dashLineProgram, "aPosition")
+        dashLineLoc["aDist"]     = GLES30.glGetAttribLocation(dashLineProgram, "aDist")
 
         // Cyberpunk points program
         for (name in listOf("uModel", "uView", "uProjection", "uColor", "uPointSize"))
@@ -116,7 +119,7 @@ class HandRenderer {
         phongProgram  = compileProgram(ShaderPrograms.PHONG_VERT,  ShaderPrograms.PHONG_FRAG)
         basicProgram  = compileProgram(ShaderPrograms.BASIC_VERT,  ShaderPrograms.BASIC_FRAG)
         lineProgram   = compileProgram(ShaderPrograms.LINE_VERT,   ShaderPrograms.LINE_FRAG)
-        cyberLineProgram   = compileProgram(ShaderPrograms.LINE_VERT,   ShaderPrograms.CYBER_LINE_FRAG)
+        dashLineProgram    = compileProgram(ShaderPrograms.DASH_LINE_VERT, ShaderPrograms.DASH_LINE_FRAG)
         cyberPointsProgram = compileProgram(ShaderPrograms.POINTS_VERT, ShaderPrograms.CYBER_POINT_FRAG)
 
         GLES30.glGenVertexArrays(1, meshVao, 0)
@@ -168,7 +171,7 @@ class HandRenderer {
             RenderMode.WIREFRAME -> drawWireframe(pts, view, proj)
             RenderMode.SKELETON,
             RenderMode.ASSET_3D,
-            RenderMode.ASSET_2D  -> drawSkeleton(pts, lms, view, proj, timeSec)
+            RenderMode.ASSET_2D  -> drawSkeleton(pts, view, proj)
         }
     }
 
@@ -291,42 +294,31 @@ class HandRenderer {
         }
     }
 
-    private fun drawSkeleton(pts: List<Vec3>, lms: HandLandmarks, view: FloatArray, proj: FloatArray, timeSec: Float) {
+    private fun drawSkeleton(pts: List<Vec3>, view: FloatArray, proj: FloatArray) {
         val model = FloatArray(16).also { Matrix.setIdentityM(it, 0) }
 
-        // Cyberpunk HUD look: neon magenta at rest → electric cyan on fast motion,
-        // diamond glow joints (CYBER_POINT_FRAG), pulsing energy lines (CYBER_LINE_FRAG).
-        val prev = prevPts
-        if (prev != null && prev.size == pts.size) {
-            var sumDist = 0f
-            for (i in pts.indices) {
-                val dx = pts[i].x - prev[i].x; val dy = pts[i].y - prev[i].y
-                sumDist += sqrt(dx * dx + dy * dy)
-            }
-            velocity = (sumDist / pts.size * 20f).coerceIn(0f, 1f)
-        }
-        prevPts = pts
-        val t = velocity
-        // rest: hot magenta (1.00, 0.12, 0.85) → motion: electric cyan (0.10, 0.95, 1.00)
-        val cr = 1.00f - 0.90f * t
-        val cg = 0.12f + 0.83f * t
-        val cb = 0.85f + 0.15f * t
+        // Mocap-telemetry HUD look: thin dotted connector lines + small "x" cross
+        // joints, pale cyan-gray — matches the reference schematic rather than a
+        // bright neon glow.
 
-        // ── All 23 connections — pulsing neon lines ───────────────────────────
-        GLES30.glUseProgram(cyberLineProgram)
-        setMatrixUniforms(cyberLineProgram, model, view, proj)
-        val colorLoc = cyberLineLoc["uColor"] ?: return
-        val lineTimeLoc = cyberLineLoc["uTime"] ?: -1
-        GLES30.glUniform4f(colorLoc, cr, cg, cb, 0.55f)
-        if (lineTimeLoc >= 0) GLES30.glUniform1f(lineTimeLoc, timeSec)
+        // ── All 23 connections — dotted/dashed lines ───────────────────────────
+        GLES30.glUseProgram(dashLineProgram)
+        setMatrixUniforms(dashLineProgram, model, view, proj)
+        val colorLoc = dashLineLoc["uColor"] ?: return
+        val dashSizeLoc = dashLineLoc["uDashSize"] ?: -1
+        GLES30.glUniform4f(colorLoc, 0.68f, 0.80f, 0.86f, 0.55f)
+        if (dashSizeLoc >= 0) GLES30.glUniform1f(dashSizeLoc, DASH_CYCLE_WORLD_UNITS)
 
         var vi = 0
         var ci = 0
         while (ci < CONNECTIONS_V11.size) {
             val a = CONNECTIONS_V11[ci]; val b = CONNECTIONS_V11[ci + 1]; ci += 2
             if (a < pts.size && b < pts.size) {
-                connScratchArr[vi++] = pts[a].x; connScratchArr[vi++] = pts[a].y; connScratchArr[vi++] = pts[a].z
-                connScratchArr[vi++] = pts[b].x; connScratchArr[vi++] = pts[b].y; connScratchArr[vi++] = pts[b].z
+                val pa = pts[a]; val pb = pts[b]
+                val dx = pb.x - pa.x; val dy = pb.y - pa.y; val dz = pb.z - pa.z
+                val segLen = sqrt(dx * dx + dy * dy + dz * dz)
+                connScratchArr[vi++] = pa.x; connScratchArr[vi++] = pa.y; connScratchArr[vi++] = pa.z; connScratchArr[vi++] = 0f
+                connScratchArr[vi++] = pb.x; connScratchArr[vi++] = pb.y; connScratchArr[vi++] = pb.z; connScratchArr[vi++] = segLen
             }
         }
         if (vi > 0) {
@@ -336,28 +328,35 @@ class HandRenderer {
             GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, linesScratchVbo[0])
             GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, vi * 4, skeletonScratchBuf, GLES30.GL_DYNAMIC_DRAW)
             skeletonScratchBuf.limit(skeletonScratchBuf.capacity())
-            val posLoc = cyberLineLoc["aPosition"] ?: -1
+            val posLoc  = dashLineLoc["aPosition"] ?: -1
+            val distLoc = dashLineLoc["aDist"]     ?: -1
+            val stride = 4 * 4 // 4 floats/vertex
             if (posLoc >= 0) {
                 GLES30.glEnableVertexAttribArray(posLoc)
-                GLES30.glVertexAttribPointer(posLoc, 3, GLES30.GL_FLOAT, false, 0, 0)
+                GLES30.glVertexAttribPointer(posLoc, 3, GLES30.GL_FLOAT, false, stride, 0)
             }
-            GLES30.glDrawArrays(GLES30.GL_LINES, 0, vi / 3)
+            if (distLoc >= 0) {
+                GLES30.glEnableVertexAttribArray(distLoc)
+                GLES30.glVertexAttribPointer(distLoc, 1, GLES30.GL_FLOAT, false, stride, 3 * 4)
+            }
+            GLES30.glDrawArrays(GLES30.GL_LINES, 0, vi / 4)
+            if (distLoc >= 0) GLES30.glDisableVertexAttribArray(distLoc)
         }
 
-        // ── Joint dots — 3 size passes, diamond glow markers ──────────────────
+        // ── Joint dots — 3 size passes, thin "x" cross markers ─────────────────
         GLES30.glUseProgram(cyberPointsProgram)
         setMatrixUniforms(cyberPointsProgram, model, view, proj)
         val ptColorLoc = cyberPointsLoc["uColor"] ?: return
         val ptSizeLoc  = cyberPointsLoc["uPointSize"] ?: -1
         val ptPosLoc   = cyberPointsLoc["aPosition"]  ?: -1
-        GLES30.glUniform4f(ptColorLoc, cr, cg, cb, 0.9f)
+        GLES30.glUniform4f(ptColorLoc, 0.86f, 0.93f, 0.98f, 0.9f)
 
-        // Wrist — reactor-core marker, largest
-        drawDotsV11(pts, intArrayOf(0), ptPosLoc, ptSizeLoc, 26f)
+        // Wrist — anchor marker, largest
+        drawDotsV11(pts, intArrayOf(0), ptPosLoc, ptSizeLoc, 12f)
         // Fingertips — medium
-        drawDotsV11(pts, intArrayOf(4, 8, 12, 16, 20), ptPosLoc, ptSizeLoc, 18f)
+        drawDotsV11(pts, intArrayOf(4, 8, 12, 16, 20), ptPosLoc, ptSizeLoc, 9f)
         // All other joints — small
-        drawDotsV11(pts, intArrayOf(1,2,3, 5,6,7, 9,10,11, 13,14,15, 17,18,19), ptPosLoc, ptSizeLoc, 12f)
+        drawDotsV11(pts, intArrayOf(1,2,3, 5,6,7, 9,10,11, 13,14,15, 17,18,19), ptPosLoc, ptSizeLoc, 7f)
     }
 
     private fun drawDotsV11(pts: List<Vec3>, indices: IntArray, posLoc: Int, sizeLoc: Int, size: Float) {
@@ -401,7 +400,7 @@ class HandRenderer {
             phongProgram        -> phongLoc
             basicProgram        -> basicLoc
             lineProgram         -> lineLoc
-            cyberLineProgram    -> cyberLineLoc
+            dashLineProgram     -> dashLineLoc
             cyberPointsProgram  -> cyberPointsLoc
             else                -> error("setMatrixUniforms: unknown program $prog")
         }

@@ -27,7 +27,6 @@ import com.arhand.scanner.PersonalModelStore
 import com.arhand.scanner.Scanner
 import com.arhand.scanner.PhotometricStereoCapture
 import com.arhand.mocap.AssetLoader
-import com.arhand.mocap.BiomechanicalConstraintFilter
 import com.arhand.mocap.BoneRetargeter
 import com.arhand.mocap.BodyRetargeter
 import com.arhand.mocap.BodyRetargetResult
@@ -40,7 +39,6 @@ import com.arhand.mocap.OscMode
 import com.arhand.mocap.OscReceiver
 import com.arhand.mocap.QuaternionEmaFilter
 import com.arhand.mocap.RetargetResult
-import com.arhand.mocap.VrmBlendShapeParser
 import com.arhand.tracking.HandPipeline
 import com.arhand.tracking.HandTrackerManager
 import com.arhand.tracking.HandTracker
@@ -252,12 +250,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     internal var loadedAsset: LoadedAsset = AssetLoader.DEFAULT_PUPPET
         private set
 
-    /** Retargeter instance — rebuilt whenever [loadedAsset] changes. */
+    /**
+     * Retargeter for the OSC-velocity/live-mesh-preview path only — the canonical
+     * per-frame retarget (primary + secondary hand, body alignment, morph weights,
+     * OSC frame streaming, motion-capture recording) happens once inside
+     * [producer]/[router]; this instance just feeds the two things that path
+     * doesn't cover.
+     */
     private var boneRetargeter: BoneRetargeter = BoneRetargeter(AssetLoader.DEFAULT_PUPPET.bindPose)
-
-    /** Gap 2 — Secondary hand (slot 1 = left hand) retargeter and smoother. */
-    private var boneRetargeterSecondary: BoneRetargeter = BoneRetargeter(AssetLoader.DEFAULT_PUPPET.bindPose)
-    private val quaternionEmaFilterSecondary = QuaternionEmaFilter()
 
     /** Most recent retarget result — updated every tracking frame. Null until first frame. */
     val latestRetargetResult: MutableStateFlow<RetargetResult?> = MutableStateFlow(null)
@@ -374,9 +374,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
 
-        // Wire tracking results → producer.assembleFrame() → SpatialFrame → router
-        // All retargeting, SL z-correction, body alignment, morph weights, OSC, BVH
-        // now happen inside producer/router. AppViewModel is a coordinator only.
+        // Wire tracking results → producer.assembleFrame() → SpatialFrame → router.
+        // All retargeting, SL z-correction, body alignment, morph weights, OSC, BVH,
+        // and motion-capture recording happen once inside producer/router (wired
+        // above via router.onRetargetResult/onFullFrame). This block used to
+        // recompute the entire retarget a second time here with its own separate
+        // BoneRetargeter/QuaternionEmaFilter instances — doubling CPU cost every
+        // frame, double-recording motion-capture frames, double-sending OSC frames,
+        // and racing router's result on the same latestRetargetResult/renderer
+        // fields (a likely source of skeleton jitter, not just wasted CPU). Only
+        // the OSC angular-velocity stream and the live-mesh preview aren't covered
+        // by the router path, so only the minimal computation they need stays here.
         viewModelScope.launch {
             handPipeline.processed.collect { hands ->
                 producer.assembleFrame(
@@ -387,23 +395,20 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 renderer.handsData = hands.map { it.landmarks }
                 renderer.mirrorX = uiState.value.isFrontCamera
 
-                // Retarget the primary hand onto the loaded asset each frame
                 val primary = hands.firstOrNull()
                 primary?.let { hand ->
                     // BODY-3 — Provide body wrist hint when body tracking is active
                     val bodyResult   = latestBodyRetargetResult.value
-                    val isMirror     = uiState.value.isFrontCamera
                     val bodyWristPos = if (trackingManager.state.value.bodyEnabled && bodyResult != null)
                         if (hand.slotIndex == 1) bodyResult.wristLeft else bodyResult.wristRight
                     else null
-                    val bodyWristVis = bodyResult?.confidence ?: 0f
 
                     val result = boneRetargeter.retarget(
                         lms           = hand.landmarks,
                         aspect        = currentAspect.value,
-                        mirrorX       = isMirror,
+                        mirrorX       = uiState.value.isFrontCamera,
                         bodyWristHint = bodyWristPos,
-                        bodyWristVis  = bodyWristVis,
+                        bodyWristVis  = bodyResult?.confidence ?: 0f,
                         // Camera capture aspect differs from the screen's — without this,
                         // landmarkToWorld's crop compensation silently disables itself
                         // (defaults camAspect = aspect) and the retargeted mesh/puppet
@@ -412,117 +417,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                             ?: currentAspect.value
                     )
                     if (result != null) {
-
                         val smoothedResult = quaternionEmaFilter.apply(result)
-
-                        // HAND-1 — Apply biomechanical joint constraints when enabled.
-                        // Projects rotations into anatomically feasible ROM ranges.
-                        // Off by default; enabled via Settings toggle.
-                        val constrainedResult = if (trackingManager.state.value.constraintEnabled) {
-                            BiomechanicalConstraintFilter.apply(smoothedResult)
-                        } else {
-                            smoothedResult
-                        }
-
-                        // Gap 6 — Unified world coordinates.
-                        // When body tracking is active, anchor the hand wrist position to the
-                        // body-space wrist landmark so hand and body skeleton share one coordinate
-                        // system. Without this, the hand floats in camera-normalised space
-                        // independently of the body's metric world space.
-                        val worldAlignedResult = if (trackingManager.state.value.bodyEnabled &&
-                            bodyResult != null && bodyResult.confidence > 0.5f) {
-                            val bodyWrist = if (hand.slotIndex == 1)
-                                bodyResult.wristLeft else bodyResult.wristRight
-                            if (bodyWrist != null) {
-                                // Replace wrist position with body-space metric position
-                                val alignedTransform = constrainedResult.wristTransform.copy(
-                                    position = bodyWrist
-                                )
-                                constrainedResult.copy(wristTransform = alignedTransform)
-                            } else constrainedResult
-                        } else constrainedResult
-
-                        latestRetargetResult.value    = worldAlignedResult
-                        renderer.latestRetargetResult = worldAlignedResult
-
-                        // Gap 4 — Drive loaded character body skeleton from body retarget result.
-                        if (trackingManager.state.value.bodyEnabled) {
-                            renderer.updateBodyPose(latestBodyRetargetResult.value, loadedAsset)
-                        }
-
-                        // ARCH-4 — Update per-pipeline quality metrics for HUD display
-                        val bodyConf = latestBodyRetargetResult.value?.confidence ?: 0f
-                        val faceConf = if (trackingManager.state.value.faceEnabled) 1f else 0f
-                        perfMonitor.updateQuality(
-                            hand = worldAlignedResult.wristTransform.let { 1f },  // hand always tracked when result is non-null
-                            body = bodyConf,
-                            face = faceConf
-                        )
-
-                        // ARCH-1 — Assemble unified full-body frame and distribute to all consumers.
-                        val faceExpr   = facePipeline.expressions.value
-                            .takeIf { trackingManager.state.value.faceEnabled }
-                    // Gap 2 — Retarget secondary hand (slot 1 = left hand)
-                    val secondary = hands.firstOrNull { it.slotIndex == 1 }
-                    val secondaryResult: RetargetResult? = secondary?.let { secHand ->
-                        val secBodyWrist = if (trackingManager.state.value.bodyEnabled && bodyResult != null)
-                            bodyResult.wristLeft else null
-                        val secRaw = boneRetargeterSecondary.retarget(
-                            lms           = secHand.landmarks,
-                            aspect        = currentAspect.value,
-                            mirrorX       = uiState.value.isFrontCamera,
-                            bodyWristHint = secBodyWrist,
-                            bodyWristVis  = bodyResult?.confidence ?: 0f,
-                            camAspect     = latestBitmap?.let { it.width.toFloat() / it.height.toFloat() }
-                                ?: currentAspect.value
-                        )
-                        secRaw?.let { r ->
-                            val smoothed = quaternionEmaFilterSecondary.apply(r)
-                            if (trackingManager.state.value.constraintEnabled)
-                                BiomechanicalConstraintFilter.apply(smoothed)
-                            else smoothed
-                        }
-                    }
-
-                        val fullFrame = FullBodyRetargetResult(
-                            timestamp       = System.currentTimeMillis(),
-                            handPrimary     = worldAlignedResult,
-                            handSecondary   = secondaryResult,
-                            body            = bodyResult.takeIf { trackingManager.state.value.bodyEnabled },
-                            face            = faceExpr,
-                            frameConfidence = worldAlignedResult.wristTransform.let { 1f },
-                            // Spatial layer — always-on depth sensing fields
-                            metricGrounded  = spatialLayer.state.value.isGrounded,
-                            cameraWorldX    = spatialLayer.state.value.cameraWorldX,
-                            cameraWorldY    = spatialLayer.state.value.cameraWorldY,
-                            cameraWorldZ    = spatialLayer.state.value.cameraWorldZ,
-                            depthConfidence = spatialLayer.state.value.depthConfidence
-                        )
-                        latestFullBodyRetargetResult.value = fullFrame
-
-                        // FACE-1 — Apply VRM blend shapes driven by face expressions.
-                        // Resolves FaceExpressions → morph target weights and forwards to renderer.
-                        // applyMorphWeights() is currently a stub; weights will be applied to GPU
-                        // morph buffers once the shader extension is added.
-                        if (trackingManager.state.value.faceEnabled && faceExpr != null) {
-                            val blendMap = loadedAsset.blendShapeMap
-                            if (blendMap != null) {
-                                val morphApps = VrmBlendShapeParser.resolve(faceExpr, blendMap)
-                                renderer.applyMorphWeights(morphApps)
-                            }
-                        }
-
-                        // Distribute via unified paths — existing individual paths kept for
-                        // backward compatibility until OSC-1 / ARCH-2 complete the migration.
-                        motionRecorder.pushFrame(fullFrame)
-                        oscStreamer.sendFrame(fullFrame)
 
                         if (oscStreamer.sendVelocity) {
                             oscStreamer.sendVelocityFrame(quaternionEmaFilter.lastAngularVelocity)
                         }
 
                         if (uiState.value.liveMeshActive && liveMeshDeformer.hasMesh()) {
-                            val deformed = liveMeshDeformer.deform(worldAlignedResult)
+                            val deformed = liveMeshDeformer.deform(smoothedResult)
                             renderer.liveMeshPositions = deformed
                         }
                     }
@@ -533,6 +435,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     // on the same event; this keeps AppViewModel's layer in sync.
                     quaternionEmaFilter.reset()
                 }
+
+                // ARCH-4 — Update per-pipeline quality metrics for HUD display
+                perfMonitor.updateQuality(
+                    hand = if (primary != null) 1f else 0f,
+                    body = latestBodyRetargetResult.value?.confidence ?: 0f,
+                    face = if (trackingManager.state.value.faceEnabled) 1f else 0f
+                )
 
                 // Feed scanner if active — use real device aspect
                 if (uiState.value.scanActive) {
@@ -802,7 +711,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * HAND-1 — Toggle [BiomechanicalConstraintFilter] on/off.
+     * HAND-1 — Toggle the biomechanical constraint filter on/off.
      *
      * When enabled, joint rotations are projected into anatomically feasible ROM ranges
      * after [QuaternionEmaFilter]. Eliminates hyperextension and other impossible poses.

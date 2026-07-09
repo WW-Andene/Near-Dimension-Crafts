@@ -7,30 +7,32 @@ import com.arhand.tracking.PoseLandmarks
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
+import kotlin.math.sqrt
 
 /**
  * Renders the MediaPipe 33-point body pose skeleton on the GL thread.
  *
- * Connections are colour-coded by body side (left=electric cyan, right=hot magenta,
- * centre=cool white) in a cyberpunk/HUD duotone. Connections and joints whose endpoint
+ * Matches a mocap-telemetry HUD look: thin dotted connector lines and small "x"
+ * cross joint markers, pale cyan-gray. Connections and joints whose endpoint
  * visibility falls below [VIS_THRESHOLD] are skipped, so occluded limbs fade out
  * naturally rather than floating as ghost geometry.
  *
- * Uses [ShaderPrograms.LINE_VERT]/[CYBER_LINE_FRAG] (pulsing energy lines) for
- * connections and [ShaderPrograms.POINTS_VERT]/[CYBER_POINT_FRAG] (diamond glow
- * markers) for joint dots.
+ * Uses [ShaderPrograms.DASH_LINE_VERT]/[DASH_LINE_FRAG] for connections and
+ * [ShaderPrograms.POINTS_VERT]/[CYBER_POINT_FRAG] (thin cross markers) for
+ * joint dots.
  */
 class BodySkeletonRenderer {
 
     private var lineProgram   = 0
     private var pointsProgram = 0
 
-    private var lineModelLoc  = 0
-    private var lineViewLoc   = 0
-    private var lineProjLoc   = 0
-    private var lineColorLoc  = 0
-    private var linePosLoc    = 0
-    private var lineTimeLoc   = 0
+    private var lineModelLoc    = 0
+    private var lineViewLoc     = 0
+    private var lineProjLoc     = 0
+    private var lineColorLoc    = 0
+    private var linePosLoc      = 0
+    private var lineDistLoc     = 0
+    private var lineDashSizeLoc = 0
 
     private var ptModelLoc    = 0
     private var ptViewLoc     = 0
@@ -47,7 +49,8 @@ class BodySkeletonRenderer {
 
     // Pre-allocated direct FloatBuffer — glBufferData consumes it synchronously so the same buffer
     // is safe to reuse for consecutive sequential draw calls within one frame.
-    // Capacity: max(PL.CONNECTIONS.size * 6, PL.COUNT * 3) = max(168, 99) → 256 floats is safe.
+    // Capacity: max(PL.CONNECTIONS.size * 2 * 4, PL.COUNT * 3) — dash-line vertices carry
+    // an extra "distance along segment" float, so lines need 4 floats/vertex not 3.
     private val scratchFloatBuf: FloatBuffer = ByteBuffer
         .allocateDirect(256 * 4)
         .order(ByteOrder.nativeOrder())
@@ -56,15 +59,16 @@ class BodySkeletonRenderer {
     fun update(lms: PoseLandmarks?) { pending = lms }
 
     fun init() {
-        lineProgram   = compileProgram(ShaderPrograms.LINE_VERT,   ShaderPrograms.CYBER_LINE_FRAG)
-        pointsProgram = compileProgram(ShaderPrograms.POINTS_VERT, ShaderPrograms.CYBER_POINT_FRAG)
+        lineProgram   = compileProgram(ShaderPrograms.DASH_LINE_VERT, ShaderPrograms.DASH_LINE_FRAG)
+        pointsProgram = compileProgram(ShaderPrograms.POINTS_VERT,    ShaderPrograms.CYBER_POINT_FRAG)
 
-        lineModelLoc = GLES30.glGetUniformLocation(lineProgram, "uModel")
-        lineViewLoc  = GLES30.glGetUniformLocation(lineProgram, "uView")
-        lineProjLoc  = GLES30.glGetUniformLocation(lineProgram, "uProjection")
-        lineColorLoc = GLES30.glGetUniformLocation(lineProgram, "uColor")
-        linePosLoc   = GLES30.glGetAttribLocation( lineProgram, "aPosition")
-        lineTimeLoc  = GLES30.glGetUniformLocation(lineProgram, "uTime")
+        lineModelLoc    = GLES30.glGetUniformLocation(lineProgram, "uModel")
+        lineViewLoc     = GLES30.glGetUniformLocation(lineProgram, "uView")
+        lineProjLoc     = GLES30.glGetUniformLocation(lineProgram, "uProjection")
+        lineColorLoc    = GLES30.glGetUniformLocation(lineProgram, "uColor")
+        linePosLoc      = GLES30.glGetAttribLocation( lineProgram, "aPosition")
+        lineDistLoc     = GLES30.glGetAttribLocation( lineProgram, "aDist")
+        lineDashSizeLoc = GLES30.glGetUniformLocation(lineProgram, "uDashSize")
 
         ptModelLoc = GLES30.glGetUniformLocation(pointsProgram, "uModel")
         ptViewLoc  = GLES30.glGetUniformLocation(pointsProgram, "uView")
@@ -81,8 +85,7 @@ class BodySkeletonRenderer {
         proj:         FloatArray,
         mirrorX:      Boolean,
         camAspect:    Float,
-        screenAspect: Float,
-        timeSec:      Float = 0f
+        screenAspect: Float
     ) {
         val lms = pending ?: return
         if (lms.size < PL.COUNT) return
@@ -105,28 +108,27 @@ class BodySkeletonRenderer {
 
         val model = FloatArray(16).also { Matrix.setIdentityM(it, 0) }
 
-        // Connection lines — three colour groups
+        // Connection lines — thin dotted mocap-telemetry look, muted by body side
         GLES30.glUseProgram(lineProgram)
         GLES30.glUniformMatrix4fv(lineModelLoc, 1, false, model, 0)
         GLES30.glUniformMatrix4fv(lineViewLoc,  1, false, view,  0)
         GLES30.glUniformMatrix4fv(lineProjLoc,  1, false, proj,  0)
-        if (lineTimeLoc >= 0) GLES30.glUniform1f(lineTimeLoc, timeSec)
+        if (lineDashSizeLoc >= 0) GLES30.glUniform1f(lineDashSizeLoc, DASH_CYCLE_WORLD_UNITS)
 
-        // Cyberpunk duotone: left=electric cyan, right=hot magenta, centre=cool white
-        drawLineGroup(LEFT_CONNS,   0.10f, 0.85f, 1f,    0.55f, xs, ys, zs, vis)
-        drawLineGroup(CENTER_CONNS, 0.85f, 0.90f, 1f,    0.45f, xs, ys, zs, vis)
-        drawLineGroup(RIGHT_CONNS,  1f,    0.15f, 0.80f, 0.55f, xs, ys, zs, vis)
+        drawLineGroup(LEFT_CONNS,   0.55f, 0.80f, 0.90f, 0.5f, xs, ys, zs, vis)
+        drawLineGroup(CENTER_CONNS, 0.80f, 0.85f, 0.90f, 0.5f, xs, ys, zs, vis)
+        drawLineGroup(RIGHT_CONNS,  0.85f, 0.60f, 0.85f, 0.5f, xs, ys, zs, vis)
 
-        // Joint dots — same colour groups, diamond glow markers
+        // Joint dots — same colour groups, thin "x" cross markers
         GLES30.glUseProgram(pointsProgram)
         GLES30.glUniformMatrix4fv(ptModelLoc, 1, false, model, 0)
         GLES30.glUniformMatrix4fv(ptViewLoc,  1, false, view,  0)
         GLES30.glUniformMatrix4fv(ptProjLoc,  1, false, proj,  0)
-        GLES30.glUniform1f(ptSizeLoc, 14f)
+        GLES30.glUniform1f(ptSizeLoc, 9f)
 
-        drawDotGroup(LEFT_JOINTS,   0.10f, 0.85f, 1f,    0.9f, xs, ys, zs, vis)
-        drawDotGroup(CENTER_JOINTS, 0.85f, 0.90f, 1f,    0.9f, xs, ys, zs, vis)
-        drawDotGroup(RIGHT_JOINTS,  1f,    0.15f, 0.80f, 0.9f, xs, ys, zs, vis)
+        drawDotGroup(LEFT_JOINTS,   0.86f, 0.93f, 0.98f, 0.9f, xs, ys, zs, vis)
+        drawDotGroup(CENTER_JOINTS, 0.86f, 0.93f, 0.98f, 0.9f, xs, ys, zs, vis)
+        drawDotGroup(RIGHT_JOINTS,  0.86f, 0.93f, 0.98f, 0.9f, xs, ys, zs, vis)
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -137,15 +139,36 @@ class BodySkeletonRenderer {
         xs: FloatArray, ys: FloatArray, zs: FloatArray, vis: FloatArray
     ) {
         GLES30.glUniform4f(lineColorLoc, r, g, b, a)
-        val verts = FloatArray(conns.size * 6)
+        // 4 floats/vertex: x, y, z, distance-along-segment (for the dash cut in the fragment stage)
+        val verts = FloatArray(conns.size * 8)
         var i = 0
         for ((p, q) in conns) {
             if (p < PL.COUNT && q < PL.COUNT && minOf(vis[p], vis[q]) >= VIS_THRESHOLD) {
-                verts[i++] = xs[p]; verts[i++] = ys[p]; verts[i++] = zs[p]
-                verts[i++] = xs[q]; verts[i++] = ys[q]; verts[i++] = zs[q]
+                val dx = xs[q] - xs[p]; val dy = ys[q] - ys[p]; val dz = zs[q] - zs[p]
+                val segLen = sqrt(dx * dx + dy * dy + dz * dz)
+                verts[i++] = xs[p]; verts[i++] = ys[p]; verts[i++] = zs[p]; verts[i++] = 0f
+                verts[i++] = xs[q]; verts[i++] = ys[q]; verts[i++] = zs[q]; verts[i++] = segLen
             }
         }
-        if (i > 0) drawRaw(linePosLoc, verts, i / 3, GLES30.GL_LINES)
+        if (i > 0) drawDashRaw(verts, i / 4, GLES30.GL_LINES)
+    }
+
+    private fun drawDashRaw(verts: FloatArray, count: Int, mode: Int) {
+        if (count == 0 || linePosLoc < 0) return
+        scratchFloatBuf.clear()
+        scratchFloatBuf.put(verts, 0, count * 4)
+        scratchFloatBuf.position(0)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, scratchVbo[0])
+        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, count * 4 * 4, scratchFloatBuf, GLES30.GL_DYNAMIC_DRAW)
+        val stride = 4 * 4
+        GLES30.glEnableVertexAttribArray(linePosLoc)
+        GLES30.glVertexAttribPointer(linePosLoc, 3, GLES30.GL_FLOAT, false, stride, 0)
+        if (lineDistLoc >= 0) {
+            GLES30.glEnableVertexAttribArray(lineDistLoc)
+            GLES30.glVertexAttribPointer(lineDistLoc, 1, GLES30.GL_FLOAT, false, stride, 3 * 4)
+        }
+        GLES30.glDrawArrays(mode, 0, count)
+        if (lineDistLoc >= 0) GLES30.glDisableVertexAttribArray(lineDistLoc)
     }
 
     private fun drawDotGroup(
@@ -195,6 +218,9 @@ class BodySkeletonRenderer {
     companion object {
         // Landmark visibility below this threshold → connection/joint is skipped.
         private const val VIS_THRESHOLD = 0.3f
+
+        // Dash-cycle length in world units — body skeleton coords span roughly -1..1.
+        private const val DASH_CYCLE_WORLD_UNITS = 0.05f
 
         // Body-side landmark sets (MediaPipe convention: left/right refer to the person's body side)
         private val LEFT_LMKS = setOf(

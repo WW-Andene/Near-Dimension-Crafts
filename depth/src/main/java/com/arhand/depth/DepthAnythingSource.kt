@@ -131,7 +131,17 @@ class DepthAnythingSource(private val context: Context) {
         try {
             val bytes = context.assets.open(ASSET_PATH).use { it.readBytes() }
             env       = OrtEnvironment.getEnvironment()
-            session   = env!!.createSession(bytes, OrtSession.SessionOptions())
+            val options = OrtSession.SessionOptions()
+            try {
+                // Offload inference to the device's NPU/DSP/GPU via NNAPI instead of
+                // running this CNN on the CPU every frame — this is the single most
+                // expensive per-frame op in the whole tracking pipeline. Falls back
+                // silently to CPU execution on devices/emulators without an NNAPI
+                // driver (addNnapi() throws there).
+                options.addNnapi()
+            } catch (_: Exception) {
+            }
+            session   = env!!.createSession(bytes, options)
             isAvailable = true
         } catch (_: Exception) {
             isAvailable = false
