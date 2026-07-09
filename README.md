@@ -17,11 +17,10 @@ motion blur, etc.).
 
 ## Status
 
-This codebase is mid-refactor. It was split from a single `app` module into
-focused Gradle modules (see below), but **`app/` still contains stale duplicate
-copies of code that now lives in the extracted modules**, in addition to
-depending on those modules via `project(':x')`. This currently produces
-duplicate-class conflicts at build/dex time. See [Known Issues](#known-issues).
+The codebase was split from a single `app` module into the focused Gradle
+modules described below (see `settings.gradle`'s "R2" comment). `app/` now
+only contains its own UI/ViewModel/feature-glue code and depends on the
+library modules via `project(':x')` for everything else.
 
 ## Architecture
 
@@ -109,10 +108,6 @@ util, tracking, depth, scanner, mocap, render, export, camera ← app
 CI (`.github/workflows/build.yml`) runs the same command on every push to
 `main`/`claude/**` and on pull requests, uploading the debug APK as an artifact.
 
-> **Note:** until the `app/` module duplication described in
-> [Known Issues](#known-issues) is resolved, a clean build may fail with
-> duplicate-class errors during the dex/merge step.
-
 ### Optional bundled 3D assets
 
 `app/src/main/assets/models/` expects `hand_default.glb` and `body_default.glb`
@@ -134,13 +129,3 @@ ARCore (`com.google.ar.core`) is declared `optional` — the app is designed to
 install and run on devices without Play Services for AR, degrading gracefully
 to SfM/photometric depth sources.
 
-## Known Issues
-
-See the project's issue assessment for the full list. The most significant:
-
-1. **Duplicate module code in `app/`** — `app/src/main/java/com/arhand/{util,camera,tracking,depth,scanner,mocap,render}/`
-   still contain full copies of code that also lives in the corresponding
-   library modules `app` depends on, and the two copies have already diverged
-   in places. This is expected to cause duplicate-class build failures and,
-   independent of that, means bug fixes applied to one copy silently don't
-   apply to the other.
