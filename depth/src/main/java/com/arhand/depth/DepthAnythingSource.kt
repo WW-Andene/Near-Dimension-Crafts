@@ -10,6 +10,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.nio.FloatBuffer
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.exp
 import kotlin.math.ln
 import kotlin.math.max
@@ -161,14 +162,31 @@ class DepthAnythingSource(private val context: Context) {
         llCalibrated = true
     }
 
+    // process() mutates shared scratch buffers (denseScratchBuf, emaMap, ...) with
+    // no synchronization. Dispatchers.Default is a thread pool, not a single thread,
+    // so if a frame's inference is still running when the next one is submitted,
+    // two process() calls could run concurrently on different pool threads and
+    // corrupt each other's buffers. Guard with a busy flag and drop the overlapping
+    // frame instead — consistent with the rest of the pipeline's "keep only latest,
+    // drop if backed up" backpressure (e.g. CameraX's STRATEGY_KEEP_ONLY_LATEST).
+    private val processing = AtomicBoolean(false)
+
     /**
      * Run inference on [bitmap] asynchronously on [Dispatchers.Default].
-     * Results are written to [depthBlocks] when complete.
+     * Results are written to [depthBlocks] when complete. Drops the frame instead
+     * of overlapping if a previous call is still running.
      */
     fun processAsync(bitmap: Bitmap, scope: CoroutineScope) {
         if (!isAvailable) return
+        if (!processing.compareAndSet(false, true)) return   // previous frame still in flight
         val copy = bitmap.copy(Bitmap.Config.ARGB_8888, false)
-        scope.launch(Dispatchers.Default) { process(copy) }
+        scope.launch(Dispatchers.Default) {
+            try {
+                process(copy)
+            } finally {
+                processing.set(false)
+            }
+        }
     }
 
     /** Synchronous inference — call from a background thread. */

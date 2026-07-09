@@ -2,6 +2,7 @@ package com.arhand.util
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 
 /**
  * ARCH-4 — Expanded performance state.
@@ -56,8 +57,11 @@ data class PerfState(
  * Exposes [StateFlow<PerfState>] consumed by the HUD overlay.
  *
  * Thread safety: [onFrame] and [onInference] are called from the camera callback
- * thread. [updateQuality] is called from the tracking coroutine. All writes go
- * through atomic [MutableStateFlow.value] assignment — safe across threads.
+ * thread. [updateQuality] and [updateBudget] are called from the tracking coroutine.
+ * Plain `_state.value = _state.value.copy(...)` is a read-modify-write that isn't
+ * atomic across threads — concurrent callers can race and silently drop each
+ * other's field changes. All writes go through [MutableStateFlow.update], which
+ * retries the whole copy under compare-and-swap until it applies cleanly.
  */
 class PerfMonitor {
     private val _state = MutableStateFlow(PerfState())
@@ -81,14 +85,16 @@ class PerfMonitor {
         val elapsed = (now - windowStart) / 1_000_000_000f
         if (elapsed >= 0.5f) {
             val fps = frameCount / elapsed
-            _state.value = _state.value.copy(
-                fps       = fps,
-                skipRatio = if (totalFrames > 0) 1f - (inferredFrames.toFloat() / totalFrames) else 0f,
-                // Publish confidence EMAs on the same 0.5s window
-                handConfidence = handConfEma,
-                bodyConfidence = bodyConfEma,
-                faceConfidence = faceConfEma
-            )
+            _state.update {
+                it.copy(
+                    fps       = fps,
+                    skipRatio = if (totalFrames > 0) 1f - (inferredFrames.toFloat() / totalFrames) else 0f,
+                    // Publish confidence EMAs on the same 0.5s window
+                    handConfidence = handConfEma,
+                    bodyConfidence = bodyConfEma,
+                    faceConfidence = faceConfEma
+                )
+            }
             frameCount     = 0
             inferredFrames = 0
             totalFrames    = 0
@@ -99,7 +105,7 @@ class PerfMonitor {
     fun onInference(ms: Float) {
         inferredFrames++
         inferenceMsEma = inferenceMsEma * 0.8f + ms * 0.2f
-        _state.value = _state.value.copy(inferenceMs = inferenceMsEma)
+        _state.update { it.copy(inferenceMs = inferenceMsEma) }
     }
 
     /**
@@ -133,12 +139,14 @@ class PerfMonitor {
         bodyThrottled:   Boolean,
         faceThrottled:   Boolean
     ) {
-        _state.value = _state.value.copy(
-            activeModelCount = activeModels,
-            totalInferenceMs = totalDispatchMs,
-            bodyThrottled    = bodyThrottled,
-            faceThrottled    = faceThrottled
-        )
+        _state.update {
+            it.copy(
+                activeModelCount = activeModels,
+                totalInferenceMs = totalDispatchMs,
+                bodyThrottled    = bodyThrottled,
+                faceThrottled    = faceThrottled
+            )
+        }
     }
 
     fun reset() {

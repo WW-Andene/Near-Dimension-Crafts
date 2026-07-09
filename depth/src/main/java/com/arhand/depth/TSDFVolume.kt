@@ -81,8 +81,14 @@ class TSDFVolume(
      *
      * @param points     List of [Vec3] surface points in world space.
      * @param confidence Per-batch confidence weight (0–1). Higher = more trust in this frame.
+     * @param cameraPos  Camera world position for this batch (e.g. [SpatialLayer]'s
+     *                   cameraWorldX/Y/Z when grounded). Used to project the signed
+     *                   distance along the true per-point camera→surface ray instead
+     *                   of assuming a fixed -Z view axis. Pass null when the camera
+     *                   isn't metrically grounded — falls back to the -Z assumption,
+     *                   same as before.
      */
-    fun integrate(points: List<Vec3>, confidence: Float) {
+    fun integrate(points: List<Vec3>, confidence: Float, cameraPos: Vec3? = null) {
         if (points.isEmpty()) return
 
         // Set grid origin from centroid on first call
@@ -98,7 +104,7 @@ class TSDFVolume(
 
         // For each incoming depth point, update the voxels along the ray
         for (p in points) {
-            integratePoint(p.x, p.y, p.z, confidence)
+            integratePoint(p.x, p.y, p.z, confidence, cameraPos)
         }
         frameCount++
     }
@@ -154,13 +160,28 @@ class TSDFVolume(
 
     // ── Integration ───────────────────────────────────────────────────────────
 
-    private fun integratePoint(wx: Float, wy: Float, wz: Float, conf: Float) {
+    private fun integratePoint(wx: Float, wy: Float, wz: Float, conf: Float, cameraPos: Vec3?) {
         if (!originSet) return
 
         // Voxel containing this surface point
         val xi = ((wx - originX) / cellSize).toInt()
         val yi = ((wy - originY) / cellSize).toInt()
         val zi = ((wz - originZ) / cellSize).toInt()
+
+        // View ray direction (camera → surface point), unit vector. Falls back to a
+        // fixed -Z view axis when the camera isn't metrically grounded (cameraPos
+        // null/NaN) or is degenerately close to the point. A fixed axis is only
+        // correct for one camera orientation; scans rotate the camera around the
+        // subject, so different frames need their own ray direction or their signed
+        // distances use inconsistent sign conventions and cancel each other out.
+        var dirX = 0f; var dirY = 0f; var dirZ = -1f
+        if (cameraPos != null && !cameraPos.x.isNaN() && !cameraPos.y.isNaN() && !cameraPos.z.isNaN()) {
+            val rx = wx - cameraPos.x; val ry = wy - cameraPos.y; val rz = wz - cameraPos.z
+            val len = sqrt(rx * rx + ry * ry + rz * rz)
+            if (len > 1e-4f) {
+                dirX = rx / len; dirY = ry / len; dirZ = rz / len
+            }
+        }
 
         // Update a small neighbourhood around the surface point
         val r = 1   // integration radius in voxels
@@ -172,10 +193,10 @@ class TSDFVolume(
             val voxCy = originY + (vy + 0.5f) * cellSize
             val voxCz = originZ + (vz + 0.5f) * cellSize
 
-            // Signed distance: positive outside (voxel farther from camera than surface)
-            // negative inside (voxel closer to camera than surface).
-            // Approximated as signed distance along Z axis (camera looks at -Z).
-            val signedDist = wz - voxCz   // positive = voxel behind surface
+            // Signed distance: positive outside (voxel farther from camera than surface),
+            // negative inside (voxel closer to camera than surface) — projection of the
+            // voxel's offset from the surface point onto the view ray direction.
+            val signedDist = (voxCx - wx) * dirX + (voxCy - wy) * dirY + (voxCz - wz) * dirZ
 
             if (abs(signedDist) > truncDist) continue   // outside truncation band
 

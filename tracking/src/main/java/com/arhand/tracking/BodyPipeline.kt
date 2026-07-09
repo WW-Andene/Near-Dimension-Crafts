@@ -95,7 +95,13 @@ class BodyPipeline {
         val sm = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
         sensorManager = sm
         sm?.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)?.let { sensor ->
-            sm.registerListener(imuListener, sensor, SensorManager.SENSOR_DELAY_GAME)
+            // init() is documented callable from any thread, but SensorManager delivers
+            // events on the calling thread's Looper by default — if that thread has no
+            // prepared Looper (any non-main background thread), registration silently
+            // fails to deliver events. Pin delivery to the main Looper explicitly so
+            // this doesn't depend on which thread calls init().
+            val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+            sm.registerListener(imuListener, sensor, SensorManager.SENSOR_DELAY_GAME, mainHandler)
         }
 
         val delegate = listOf(Delegate.GPU, Delegate.CPU).firstNotNullOfOrNull { d ->

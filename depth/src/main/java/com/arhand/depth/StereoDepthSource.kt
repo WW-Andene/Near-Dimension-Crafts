@@ -18,6 +18,7 @@ import android.os.HandlerThread
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
 import kotlin.math.sqrt
 
@@ -89,6 +90,10 @@ class StereoDepthSource(private val context: Context) {
     private val blocksScratch  = FloatArray(STEREO_BLOCK_COUNT)
     private val countsScratch  = IntArray(STEREO_BLOCK_COUNT)
     private val bitmapLumaScratch = IntArray(STEREO_W * STEREO_H)
+
+    // Guards computeDisparity's shared scratch buffers (mainLuma, slaveLuma,
+    // dispMapScratch, ...) from overlapping coroutine launches — see requestCapture.
+    private val disparityComputing = AtomicBoolean(false)
 
     // Double-buffer for depthBlocks publication — avoids blocks.copyOf() every stereo call.
     private val depthBlocksOutA = FloatArray(STEREO_BLOCK_COUNT)
@@ -218,14 +223,31 @@ class StereoDepthSource(private val context: Context) {
                 val img = r.acquireLatestImage() ?: return@setOnImageAvailableListener
                 try {
                     extractLuma(img, slaveLuma)
-                    img.close()
                     if (mainBitmap != null) {
                         extractBitmapLuma(mainBitmap, mainLuma)
-                        scope.launch(Dispatchers.Default) {
-                            computeDisparity(mainLuma, slaveLuma)
+                        // computeDisparity mutates shared scratch buffers (mainLuma,
+                        // slaveLuma, dispMapScratch, ...) with no synchronization — drop
+                        // this capture's disparity pass if a previous one is still
+                        // running instead of letting them race on the same buffers.
+                        if (disparityComputing.compareAndSet(false, true)) {
+                            scope.launch(Dispatchers.Default) {
+                                try {
+                                    computeDisparity(mainLuma, slaveLuma)
+                                } finally {
+                                    disparityComputing.set(false)
+                                }
+                            }
                         }
                     }
-                } catch (_: Exception) { img.close() }
+                } catch (_: Exception) {
+                    // handled by caller polling isAvailable / stats — no rethrow
+                } finally {
+                    // Single close point: previously this ran unconditionally after
+                    // extractLuma AND again in the catch block, double-closing an
+                    // already-closed Image and throwing IllegalStateException whenever
+                    // extractBitmapLuma (or anything after the first close) threw.
+                    img.close()
+                }
             }, cameraHandler)
 
             session.capture(req, null, cameraHandler)

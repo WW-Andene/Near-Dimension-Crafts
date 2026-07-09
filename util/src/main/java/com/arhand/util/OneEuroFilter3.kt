@@ -36,9 +36,17 @@ class OneEuroFilter3(
         val dt = maxOf((nowMs - lastMs) * 0.001f, 1e-4f)
         lastMs = nowMs
 
-        xVal = filterAxis(xVal, xDv.also { xDv = updateDx(xDv, x, xVal, dt) }, x, dt, mcXY, betaXY)
-        yVal = filterAxis(yVal, yDv.also { yDv = updateDx(yDv, y, yVal, dt) }, y, dt, mcXY, betaXY)
-        zVal = filterAxis(zVal, zDv.also { zDv = updateDx(zDv, z, zVal, dt) }, z, dt, mcZ,  betaZ)
+        // Derivative must be updated (from the OLD value) and then used for THIS
+        // frame's adaptive cutoff — `dv.also { dv = updateDx(...) }` reads as if it
+        // does that, but .also returns its receiver evaluated before the lambda
+        // runs, so it fed filterAxis the previous frame's stale derivative instead.
+        xDv = updateDx(xDv, x, xVal, dt)
+        yDv = updateDx(yDv, y, yVal, dt)
+        zDv = updateDx(zDv, z, zVal, dt)
+
+        xVal = filterAxis(xVal, xDv, x, dt, mcXY, betaXY)
+        yVal = filterAxis(yVal, yDv, y, dt, mcXY, betaXY)
+        zVal = filterAxis(zVal, zDv, z, dt, mcZ,  betaZ)
         return Result(xVal, yVal, zVal)
     }
 

@@ -46,7 +46,26 @@ class MainActivity : ComponentActivity() {
     private val cameraPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) vm.initCamera(this@MainActivity)
+        if (granted) vm.initCamera(this@MainActivity) else vm.onCameraPermissionDenied()
+    }
+
+    /**
+     * Re-triggers the CAMERA permission flow from the splash screen's retry button.
+     * If the system will no longer show the rationale dialog (permanently denied,
+     * "don't ask again"), re-launching the request just re-denies silently — send
+     * the user to the app's system settings page instead so they have a real way
+     * to recover.
+     */
+    private fun requestCameraPermission() {
+        val permanentlyDenied = !shouldShowRequestPermissionRationale(android.Manifest.permission.CAMERA)
+        val previouslyDenied  = vm.uiState.value.cameraPermissionDenied
+        if (previouslyDenied && permanentlyDenied) {
+            startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = android.net.Uri.fromParts("package", packageName, null)
+            })
+        } else {
+            cameraPermission.launch(android.Manifest.permission.CAMERA)
+        }
     }
 
     // ASSET-1 — File picker launcher. Accepts any GLB (model/gltf-binary) or
@@ -73,9 +92,10 @@ class MainActivity : ComponentActivity() {
                 androidx.lifecycle.compose.LocalLifecycleOwner provides this@MainActivity
             ) {
                 HandyApp(
-                    vm            = vm,
-                    onShareGlb    = ::shareGlb,
-                    onPickAsset   = { assetPickerLauncher.launch("*/*") }
+                    vm                        = vm,
+                    onShareGlb                = ::shareGlb,
+                    onPickAsset               = { assetPickerLauncher.launch("*/*") },
+                    onRequestCameraPermission = ::requestCameraPermission
                 )
             }
         }
@@ -97,7 +117,12 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun HandyApp(vm: AppViewModel, onShareGlb: () -> Unit, onPickAsset: () -> Unit) {
+fun HandyApp(
+    vm: AppViewModel,
+    onShareGlb: () -> Unit,
+    onPickAsset: () -> Unit,
+    onRequestCameraPermission: () -> Unit = {}
+) {
     val uiState            by vm.uiState.collectAsStateWithLifecycle()
     val trackingState      by vm.trackingManager.state.collectAsStateWithLifecycle()
     val streamState        by vm.oscManager.state.collectAsStateWithLifecycle()
@@ -184,7 +209,12 @@ fun HandyApp(vm: AppViewModel, onShareGlb: () -> Unit, onPickAsset: () -> Unit) 
             vm.dismissOnboarding()
         }
 
-        if (uiState.showSplash) SplashScreen()
+        if (uiState.showSplash) {
+            SplashScreen(
+                permissionDenied     = uiState.cameraPermissionDenied,
+                onRequestPermission  = onRequestCameraPermission
+            )
+        }
 
         if (!uiState.showSplash && uiState.showOnboarding) {
             OnboardingScreen(onDismiss = { vm.dismissOnboarding() })

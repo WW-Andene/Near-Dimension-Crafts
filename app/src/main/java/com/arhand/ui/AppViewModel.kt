@@ -94,7 +94,9 @@ data class AppUiState(
     val showSplash:    Boolean       = true,
     val showOnboarding: Boolean      = false,
     val liveMeshActive: Boolean      = false,
-    val workflowMode:  WorkflowMode  = WorkflowMode.IDLE
+    val workflowMode:  WorkflowMode  = WorkflowMode.IDLE,
+    /** True once the user has denied the CAMERA permission request. */
+    val cameraPermissionDenied: Boolean = false
 )
 
 // DataStore delegates — must be top-level per Kotlin DataStore contract.
@@ -575,7 +577,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                                             capturedDepthFrames.add(masked)
                                             // HAND-8 — Integrate into TSDF volume for surface-aware reconstruction
                                             val depthConf = (store.pointCount / 10000f).coerceIn(0.3f, 1f)
-                                            tsdfVolume.integrate(masked, depthConf)
+                                            val camPos = spatialLayer.state.value.let {
+                                                com.arhand.util.Vec3(it.cameraWorldX, it.cameraWorldY, it.cameraWorldZ)
+                                            }
+                                            tsdfVolume.integrate(masked, depthConf, camPos)
                                             depthConfidence.value = (store.pointCount / 10000f).coerceIn(0f, 1f)
                                         }
                                     }
@@ -626,7 +631,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                                             val masked = HandSegmentationMask.filterPointCloud(cloud, hull)
                                             capturedDepthFrames.add(masked)
                                             val depthConf = (store.pointCount / 10000f).coerceIn(0.3f, 1f)
-                                            tsdfVolume.integrate(masked, depthConf)
+                                            val camPos = spatialLayer.state.value.let {
+                                                com.arhand.util.Vec3(it.cameraWorldX, it.cameraWorldY, it.cameraWorldZ)
+                                            }
+                                            tsdfVolume.integrate(masked, depthConf, camPos)
                                             depthConfidence.value = (store.pointCount / 10000f).coerceIn(0f, 1f)
                                         }
                                     }
@@ -687,7 +695,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * Called when the user denies (or has permanently denied) the CAMERA permission
+     * request. Without this, [uiState.showSplash] never clears — since it's only
+     * set false inside [initCamera], which only runs from the granted-permission
+     * callback — leaving the app stuck on the splash screen forever with no
+     * explanation or retry path.
+     */
+    fun onCameraPermissionDenied() {
+        uiState.update { it.copy(cameraPermissionDenied = true) }
+    }
+
     fun initCamera(owner: LifecycleOwner) {
+        uiState.update { it.copy(cameraPermissionDenied = false) }
         val cc = CameraController(getApplication(), producer.frameProvider)
         cameraController = cc
         producer.isFrontCamera = uiState.value.isFrontCamera
@@ -820,6 +840,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun switchCamera() {
+        // Guard against calling before initCamera() has run, same as toggleTorch()
+        // above — currently unreachable via UI (the flip button is gated behind
+        // !showSplash) but any new caller invoked pre-init would otherwise throw.
+        if (!::cameraController.isInitialized) return
+
         // SpatialLayer SfM/Photo need the rear camera — pause TSDF accumulation but
         // spatialLayer itself continues (ARCore also requires rear camera so it will
         // drop to SfM-only on front camera, which is the correct degradation).

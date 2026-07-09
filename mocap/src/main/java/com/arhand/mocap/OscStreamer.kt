@@ -281,19 +281,26 @@ class OscStreamer {
         }
         socket = skt
 
-        val address = try {
-            InetAddress.getByName(host)
-        } catch (e: Exception) {
-            skt.close()
-            socket  = null
-            channel?.close()
-            channel = null
-            return
-        }
-        resolvedAddress = address
+        // DNS resolution is blocking I/O — a non-literal hostname can take 10-100ms+.
+        // start() is called from the UI/ViewModel thread, so resolve on Dispatchers.IO
+        // inside the streaming coroutine instead of blocking the caller. resolvedAddress
+        // stays null (every send* method already no-ops on a null address) until it
+        // completes.
+        resolvedAddress = null
 
         scope = CoroutineScope(Dispatchers.IO + Job()).also { sc ->
             sc.launch {
+                val address = try {
+                    InetAddress.getByName(host)
+                } catch (e: Exception) {
+                    skt.close()
+                    socket  = null
+                    channel?.close()
+                    channel = null
+                    return@launch
+                }
+                resolvedAddress = address
+
                 while (isActive) {
                     val result = ch.receive()
                     try {
