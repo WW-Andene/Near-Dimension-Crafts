@@ -155,14 +155,15 @@ class BoneRetargeter(private val bindPose: BindPose) {
         aspect:        Float,
         mirrorX:       Boolean,
         bodyWristHint: Vec3?  = null,
-        bodyWristVis:  Float  = 0f
+        bodyWristVis:  Float  = 0f,
+        camAspect:     Float  = aspect
     ): RetargetResult? {
         if (lms.size < 21) return null
 
         // Convert all 21 landmarks to world-space Vec3
         val world: Array<Vec3> = Array(21) { i ->
             val lm = lms[i]
-            val (wx, wy, wz) = landmarkToWorld(lm, aspect, mirrorX)
+            val (wx, wy, wz) = landmarkToWorld(lm, aspect, mirrorX, camAspect)
             Vec3(wx, wy, wz)
         }
 

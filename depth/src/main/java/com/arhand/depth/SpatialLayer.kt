@@ -16,21 +16,25 @@ import kotlinx.coroutines.flow.StateFlow
  * toggle. This meant streaming, recording, and VTubing sessions had no metric spatial
  * grounding — wrist positions were in camera-normalised space, not real-world metres.
  *
- * [SpatialLayer] makes depth sensing **always-on** from camera start. It provides:
+ * [SpatialLayer] makes metric grounding **always-on** from camera start via ARCore + SfM
+ * only. It provides:
  *
  *   1. **Metric grounding** — when ARCore is tracking, [isGrounded] = true and
  *      [cameraWorldX/Y/Z] give the device's metric position. All downstream consumers
  *      (retargeter, OSC streamer, BVH recorder) can tag their output as metric.
  *
- *   2. **Live point cloud** — [fusedDepth].store is continuously updated. Scan tools
- *      read from it for TSDF accumulation; the renderer reads from it for live display.
+ *   2. **Live point cloud** — [fusedDepth].store is updated by ARCore + SfM always, and
+ *      additionally by the reconstruction-only sources (photometric stereo, dual-camera
+ *      stereo, RS-stereo, PSP) while [setReconstructionActive] is on — see that method's
+ *      doc for why those specific sources are scan-gated rather than always-on (chiefly:
+ *      photometric stereo drives the physical torch on/off every frame it runs).
  *
  *   3. **SfM scale calibration** — [metricScale] is the dynamically calibrated
  *      metres-per-SfM-unit factor. When ARCore is unavailable, SfM output is still
  *      self-consistent and approximately metric after warm-up.
  *
- *   4. **Degradation ladder** — on devices without ARCore depth hardware, SfM + Photometric
- *      continue independently. [isGrounded] reflects ARCore availability specifically;
+ *   4. **Degradation ladder** — on devices without ARCore depth hardware, SfM continues
+ *      independently for grounding. [isGrounded] reflects ARCore availability specifically;
  *      [depthActive] reflects any depth source running.
  *
  * ## Lifecycle
@@ -141,6 +145,15 @@ class SpatialLayer(private val context: Context) {
 
         _state.value = _state.value.copy(depthActive = true, sourceLabel = "STARTING…")
     }
+
+    /**
+     * Start or stop [FusedDepthSource]'s reconstruction-only sub-sources (photometric
+     * stereo, dual-camera stereo, rolling-shutter stereo, phase-shifting profilometry).
+     * Call with `true` when a scan starts (posed or freeform) and `false` when it
+     * ends/cancels. ARCore/SfM metric grounding and SLAM/rPPG stay always-on regardless
+     * — only the scan-reconstruction-specific sources are gated.
+     */
+    fun setReconstructionActive(active: Boolean) = fusedDepth.setReconstructionActive(active)
 
     /**
      * Process [bitmap] through the always-on v27 sensing pipeline.

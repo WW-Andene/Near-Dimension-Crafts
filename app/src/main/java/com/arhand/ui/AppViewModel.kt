@@ -403,7 +403,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                         aspect        = currentAspect.value,
                         mirrorX       = isMirror,
                         bodyWristHint = bodyWristPos,
-                        bodyWristVis  = bodyWristVis
+                        bodyWristVis  = bodyWristVis,
+                        // Camera capture aspect differs from the screen's — without this,
+                        // landmarkToWorld's crop compensation silently disables itself
+                        // (defaults camAspect = aspect) and the retargeted mesh/puppet
+                        // drifts from where the hand actually is in the cropped preview.
+                        camAspect     = latestBitmap?.let { it.width.toFloat() / it.height.toFloat() }
+                            ?: currentAspect.value
                     )
                     if (result != null) {
 
@@ -466,7 +472,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                             aspect        = currentAspect.value,
                             mirrorX       = uiState.value.isFrontCamera,
                             bodyWristHint = secBodyWrist,
-                            bodyWristVis  = bodyResult?.confidence ?: 0f
+                            bodyWristVis  = bodyResult?.confidence ?: 0f,
+                            camAspect     = latestBitmap?.let { it.width.toFloat() / it.height.toFloat() }
+                                ?: currentAspect.value
                         )
                         secRaw?.let { r ->
                             val smoothed = quaternionEmaFilterSecondary.apply(r)
@@ -870,11 +878,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * Toggle TSDF accumulation for scan reconstruction.
-     *
-     * [SpatialLayer] now runs continuously — this toggle no longer starts/stops depth
-     * sensing. It controls whether the scan frame loop accumulates depth frames into the
-     * TSDF volume (for mesh export), and whether the depth cloud is shown in the renderer.
+     * Toggle TSDF accumulation for scan reconstruction, and the reconstruction-only
+     * depth sub-sources (photometric stereo, dual-camera stereo, RS-stereo, PSP) that
+     * feed it — see [SpatialLayer.setReconstructionActive]. ARCore/SfM metric grounding
+     * stays always-on regardless.
      *
      * Front camera is still blocked because TSDF accumulation from SfM/ARCore needs
      * the rear camera's metric point cloud.
@@ -886,9 +893,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             // Clear stale depth frames from any prior session
             capturedDepthFrames.clear()
             scanState.value = scanState.value.copy(depthMode = true)
+            spatialLayer.setReconstructionActive(true)
         } else {
             scanState.value = scanState.value.copy(depthMode = false)
             capturedDepthFrames.clear()
+            spatialLayer.setReconstructionActive(false)
         }
     }
 
@@ -898,6 +907,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         capturedDepthFrames.clear()
         capturedScanBitmaps.clear()   // R1
         tsdfVolume.reset()
+
+        // Depth reconstruction (photometric/stereo/RS-stereo/PSP) only runs during an
+        // active scan — see SpatialLayer.setReconstructionActive. Rear-camera-only,
+        // same constraint toggleDepth() has always had (TSDF needs the rear metric cloud).
+        if (!uiState.value.isFrontCamera) {
+            scanState.value = scanState.value.copy(depthMode = true)
+            spatialLayer.setReconstructionActive(true)
+        }
 
         torchOnAtScanStart = uiState.value.torchOn
         photoStereoCapture.reset()
@@ -949,6 +966,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             cameraController.setTorch(torchOnAtScanStart)
         }
         uiState.update { it.copy(scanActive = false) }
+        scanState.value = scanState.value.copy(depthMode = false)
+        spatialLayer.setReconstructionActive(false)
     }
 
     // ─── LIMIT-2: Freeform (continuous) scan ─────────────────────────────────
@@ -969,6 +988,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         capturedDepthFrames.clear()
         capturedScanBitmaps.clear()
         tsdfVolume.reset()
+
+        if (!uiState.value.isFrontCamera) {
+            scanState.value = scanState.value.copy(depthMode = true)
+            spatialLayer.setReconstructionActive(true)
+        }
 
         torchOnAtScanStart = uiState.value.torchOn
         photoStereoCapture.reset()
@@ -1025,7 +1049,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             cameraController.setTorch(torchOnAtScanStart)
         }
         uiState.update { it.copy(scanActive = false) }
-        scanState.value = scanState.value.copy(freeformActive = false, freeformStatus = null)
+        scanState.value = scanState.value.copy(freeformActive = false, freeformStatus = null, depthMode = false)
+        spatialLayer.setReconstructionActive(false)
         router.isFreeformActive = false
         router.isScanActive     = false
     }
@@ -1086,8 +1111,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     biometricHistory       = result.biometricHistory,
                     jointRomData           = null,
                     neuralReconDiagnostics = result.neuralDiagnostics,
-                    freeformActive         = false
+                    freeformActive         = false,
+                    depthMode              = false
                 )
+                spatialLayer.setReconstructionActive(false)
 
                 result.calibratedOefCutoff?.let { cutoff ->
                     result.calibratedOefBeta?.let { beta ->
@@ -1120,7 +1147,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 if (scanState.value.photoStereoEnabled && !uiState.value.isFrontCamera) {
                     cameraController.setTorch(torchOnAtScanStart)
                 }
-                scanState.value = scanState.value.copy(freeformActive = false)
+                scanState.value = scanState.value.copy(freeformActive = false, depthMode = false)
+                spatialLayer.setReconstructionActive(false)
                 uiState.update { it.copy(scanActive = false) }
                 router.isFreeformActive = false
                 router.isScanActive     = false
@@ -1206,6 +1234,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
                 scanner.markDone()
                 uiState.update { it.copy(scanActive = false) }
+                scanState.value = scanState.value.copy(depthMode = false)
+                spatialLayer.setReconstructionActive(false)
 
             } catch (e: Exception) {
                 scanner.markFailed(e.message ?: "Processing error")
@@ -1214,6 +1244,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     cameraController.setTorch(torchOnAtScanStart)
                 }
                 uiState.update { it.copy(scanActive = false) }
+                scanState.value = scanState.value.copy(depthMode = false)
+                spatialLayer.setReconstructionActive(false)
             }
         }
     }

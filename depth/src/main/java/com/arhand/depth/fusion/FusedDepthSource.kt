@@ -12,7 +12,9 @@ import com.arhand.depth.DarkRoomAdaptiveSL
 import com.arhand.depth.DepthAnythingSource
 import com.arhand.depth.DepthSource
 import com.arhand.depth.DepthSourceCallback
+import com.arhand.depth.FlareDetector
 import com.arhand.depth.JointBilateralUpsampler
+import com.arhand.depth.MoireDetector
 import com.arhand.depth.PhaseShiftingProfilometry
 import com.arhand.depth.PhotometricDepthSource
 import com.arhand.depth.RollingShutterStereo
@@ -30,12 +32,20 @@ import kotlin.math.sqrt
  * Combines three complementary depth signals into a single coherent [PointCloudStore]:
  *
  *   ARCore  → metric scale + world-space anchor. Best quality when tracking. Confidence 1.0.
+ *             Always-on — started in [start].
  *   SfM     → optical flow triangulation. Works without ARCore. Confidence 0.6.
  *             When ARCore is available, SfM depth is rescaled to metric using the
  *             dynamically calibrated [sfmScale] instead of the hardcoded PX_TO_M guess.
+ *             Always-on — started in [start].
  *   Photometric → surface normals from torch on/off pairs. Adds surface topology detail
  *             that neither ARCore nor SfM can resolve. Confidence 0.35.
  *             When ARCore scale is known, photometric depth is rescaled to match.
+ *             Reconstruction-only — started/stopped by [setReconstructionActive], not [start],
+ *             since it drives the physical torch on/off every frame it runs.
+ *
+ * Dual-camera stereo, rolling-shutter stereo, and phase-shifting profilometry are
+ * additional reconstruction-only channels folded into the arbiter (see
+ * [CrossChannelArbiter]) — also gated by [setReconstructionActive].
  *
  * ## Scale calibration (ARCore ↔ SfM)
  *
@@ -91,6 +101,8 @@ class FusedDepthSource(
     val drasl       = DarkRoomAdaptiveSL()
     val rsStereo    = RollingShutterStereo()
     val jbu         = JointBilateralUpsampler()
+    val flareDetector = FlareDetector()
+    val moireDetector = MoireDetector()
     /** S3.1 — Dual-lens stereo depth. Probes Camera2 at start; no-ops when hardware absent. */
     val stereo      = StereoDepthSource(context)
 
@@ -236,6 +248,17 @@ class FusedDepthSource(
             srcSignals[CrossChannelArbiter.CH_STEREO]
         } else zeroBlocks
 
+        // RS-Stereo: feed the real computed signal instead of discarding it. Its
+        // baseWeight prior is 0 (a handheld phone's natural tremor gives a sub-millimetre
+        // baseline — negligible SNR in the common case) but during an active scan the
+        // camera sweeps deliberately (see the "rotate your hand freely" freeform-scan
+        // prompt), which is exactly when the baseline — and so this channel's actual
+        // usefulness — is largest. Let the arbiter's per-block agreement gate decide its
+        // contribution each frame rather than hard-zeroing it before that gate ever runs.
+        val rsBlocks = rsStereo.lastDepthBlocks?.also {
+            updateSourceSignalBlocks(CrossChannelArbiter.CH_RS, it)
+        }?.let { srcSignals[CrossChannelArbiter.CH_RS] } ?: zeroBlocks
+
         arbiter.compute(
             base   = srcSignals[CrossChannelArbiter.CH_BASE],
             sl     = slBoostedBlocks,
@@ -244,8 +267,14 @@ class FusedDepthSource(
             da2    = da2GatedBlocks,
             lca    = srcSignals[CrossChannelArbiter.CH_LCA],
             xr     = srcSignals[CrossChannelArbiter.CH_XR],
-            pol    = zeroBlocks, flare = zeroBlocks, moire = zeroBlocks,
-            rs     = zeroBlocks,
+            // POL (polarimetric depth) permanently zeroed — needs a polarization-filter
+            // sensor phone cameras don't have. Not a gap to close in software.
+            pol    = zeroBlocks,
+            // FLARE/MOIRE are frame-level scalars (updateSourceSignal fills every
+            // block with the same value) — see FlareDetector/MoireDetector.
+            flare  = srcSignals[CrossChannelArbiter.CH_FLARE],
+            moire  = srcSignals[CrossChannelArbiter.CH_MOIRE],
+            rs     = rsBlocks,
             stereo = stereoBlocks
         ).copyInto(cachedWeights)
     }
@@ -295,6 +324,25 @@ class FusedDepthSource(
         }
     }
 
+    // Callback retained so setReconstructionActive() can (re)start photometric/stereo
+    // on demand instead of only at the one-time start() call.
+    private var savedCallback: DepthSourceCallback? = null
+
+    /**
+     * Whether the reconstruction-only sub-sources (photometric stereo, dual-camera
+     * stereo, rolling-shutter stereo, phase-shifting profilometry) are active.
+     *
+     * These exist purely to build depth *reconstruction* quality for scanning —
+     * unlike ARCore/SfM (always-on metric grounding for streaming/recording) or DA2
+     * (feeds core hand-landmark Z correction), nothing outside a scan reads their
+     * output. Photometric stereo in particular toggles the physical torch on/off
+     * every frame while active, so running it unconditionally for the app's entire
+     * lifetime — as this used to — is both a major performance cost and a visibly
+     * flickering torch for users who are just tracking/streaming, not scanning.
+     */
+    @Volatile var reconstructionActive: Boolean = false
+        private set
+
     override fun start(callback: DepthSourceCallback) {
         store.clear()
         voxelConf.clear()
@@ -307,6 +355,7 @@ class FusedDepthSource(
         scaleHistIdx        = 0
         scaleHistFull       = false
         lastArcoreMeanDepth = Float.NaN
+        savedCallback       = callback
 
         // S1.1: Register ALS sensor — one reading per second is sufficient
         val sm = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
@@ -328,8 +377,24 @@ class FusedDepthSource(
         }
 
         sfm.start(SfmCallback(callback))
-        photometric.start(PhotoCallback(callback))
-        stereo.start()  // S3.1: probe and open second camera if available
+        // photometric + stereo are NOT started here — see setReconstructionActive().
+    }
+
+    /**
+     * Start or stop the reconstruction-only sub-sources. Call with `true` when a scan
+     * begins (posed or freeform) and `false` when it ends/cancels — see [reconstructionActive].
+     */
+    fun setReconstructionActive(active: Boolean) {
+        if (active == reconstructionActive) return
+        reconstructionActive = active
+        val callback = savedCallback ?: return
+        if (active) {
+            photometric.start(PhotoCallback(callback))
+            stereo.start()  // S3.1: probe and open second camera if available
+        } else {
+            photometric.stop()
+            stereo.stop()
+        }
     }
 
     override fun stop() {
@@ -339,6 +404,8 @@ class FusedDepthSource(
         sfm.stop()
         photometric.stop()
         stereo.stop()
+        reconstructionActive = false
+        savedCallback = null
     }
 
     /**
@@ -387,16 +454,31 @@ class FusedDepthSource(
      * @param scope   Coroutine scope for DA2 async inference
      */
     fun processAuxSources(bitmap: Bitmap, slDepth: FloatArray?, scope: CoroutineScope) {
-        // DRASL — update luma; boost applied in recomputeArbiter
-        drasl.analyse(bitmap)
+        // Reconstruction-only sources: only useful while actually scanning — see
+        // reconstructionActive's doc. Skipping them the rest of the time is most of
+        // the fix for the app being unconditionally CPU/camera-pipeline heavy.
+        if (reconstructionActive) {
+            // DRASL — update luma; boost applied in recomputeArbiter
+            drasl.analyse(bitmap)
 
-        // RS-Stereo — base weight zeroed; process for future use but skip signal update
-        rsStereo.process(bitmap)
+            // RS-Stereo — feeds CH_RS in recomputeArbiter
+            rsStereo.process(bitmap)
 
-        // PSP — tick stale counter (capture is UI-triggered via psp.startCapture())
-        psp.tick()
+            // PSP — tick stale counter (capture is UI-triggered via psp.startCapture())
+            psp.tick()
 
-        // DA2 — async inference; update both frame-level confidence and per-block signal
+            // S3.1: Stereo depth — capture slave frame and compute disparity against main frame
+            if (stereo.isAvailable && lastLux <= 15000f) {
+                stereo.requestCapture(scope, bitmap)
+            }
+
+            // FLARE / MOIRE — frame-level artefact-confidence signals for CH_FLARE/CH_MOIRE
+            updateSourceSignal(CrossChannelArbiter.CH_FLARE, flareDetector.analyse(bitmap))
+            updateSourceSignal(CrossChannelArbiter.CH_MOIRE, moireDetector.analyse(bitmap))
+        }
+
+        // DA2 stays always-on: its dense depth map also feeds core hand-landmark Z
+        // correction (SpatialFrameProducer.spatializeHand), not just reconstruction.
         if (da2.isAvailable) {
             da2.processAsync(bitmap, scope)
             updateSourceSignal(CrossChannelArbiter.CH_DA2, da2.confidence)
@@ -409,11 +491,6 @@ class FusedDepthSource(
         }
 
         da2.outdoorMode = lastLux > 5000f  // S3.4: outdoor scene context scaling
-
-        // S3.1: Stereo depth — capture slave frame and compute disparity against main frame
-        if (stereo.isAvailable && lastLux <= 15000f) {
-            stereo.requestCapture(scope, bitmap)
-        }
 
         // Recompute per-block arbiter weights for this frame
         recomputeArbiter()

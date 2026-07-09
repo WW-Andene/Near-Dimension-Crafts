@@ -20,7 +20,12 @@ import kotlin.math.sqrt
  *
  * Depth is estimated as:   z = baseline × focal_px / disparity
  *
- * Output resolution matches the SL grid (8×6 blocks by default).
+ * Output is the same S3.2 52-entry 3-tier spatial pyramid every other channel in
+ * [com.arhand.depth.fusion.FusedDepthSource] uses (see [StereoDepthSource]'s identical
+ * [depthToBlockIdx] for the tier geometry) — RS-stereo only resolves depth per column
+ * (rows within a column share one estimate, since top/bottom strip disparity is
+ * inherently 1D horizontal), so each column's estimate is broadcast across every
+ * pyramid block whose (nx, ny, depth) it could plausibly land in.
  */
 class RollingShutterStereo {
 
@@ -37,9 +42,14 @@ class RollingShutterStereo {
         private const val MIN_DISPARITY   = 1.0f
         // Approximate focal length (pixels) for a ~320-wide view at ~60° HFOV
         private const val FOCAL_PX        = 265f
+        // S3.2 pyramid size — must match FusedDepthSource.BLOCK_COUNT / StereoDepthSource.STEREO_BLOCK_COUNT
+        private const val BLOCK_COUNT     = 52
+        // Vertical samples used to broadcast each column's single depth estimate
+        // across the pyramid's ny-resolution (this source has no real per-row detail)
+        private const val NY_SAMPLES      = 8
     }
 
-    /** Per-block (8×6) normalised depth [0–1] from the most recent [process] call, or null. */
+    /** Per-block (S3.2 52-entry pyramid) normalised depth [0–1] from the most recent [process] call, or null. */
     @Volatile var lastDepthBlocks: FloatArray? = null
         private set
 
@@ -51,13 +61,14 @@ class RollingShutterStereo {
 
     /**
      * Process [bitmap]. Estimates lateral camera velocity against the previous frame,
-     * computes top/bottom strip disparity, and writes [lastDepthBlocks].
+     * computes top/bottom strip disparity, and writes [lastDepthBlocks] as a 52-entry
+     * S3.2 pyramid (see class doc).
      *
      * @param bitmap  Current camera frame
-     * @param blockW  Output grid width  (default 8)
-     * @param blockH  Output grid height (default 6)
+     * @param blockW  Number of columns sampled for disparity estimation (default 8) —
+     *                not the output block count, which is always [BLOCK_COUNT].
      */
-    fun process(bitmap: Bitmap, blockW: Int = 8, blockH: Int = 6) {
+    fun process(bitmap: Bitmap, blockW: Int = 8) {
         val prev = prevBitmap
         prevBitmap = bitmap
 
@@ -84,7 +95,8 @@ class RollingShutterStereo {
         val baselinePx = abs(vx) * ROW_DELAY_SEC * (h - stripH).toFloat()
         if (baselinePx < 0.01f) { lastDepthBlocks = null; return }
 
-        val depth  = FloatArray(blockW * blockH)
+        val blocks = FloatArray(BLOCK_COUNT)
+        val counts = IntArray(BLOCK_COUNT)
         val colW   = w.toFloat() / blockW
         val sign   = if (vx > 0) 1 else -1
 
@@ -93,14 +105,56 @@ class RollingShutterStereo {
             val topY2  = (topY + stripH / 2).coerceIn(0, h - 1)
             val botY2  = (botY + stripH / 2).coerceIn(0, h - 1)
             val disp   = computeSADDisparity(bitmap, cx, topY2, botY2, w, h, sign)
+            if (disp < MIN_DISPARITY) continue
 
-            val z = if (disp >= MIN_DISPARITY) (baselinePx * FOCAL_PX / disp) else 0f
+            val z = baselinePx * FOCAL_PX / disp
             // Normalise: assume max metric depth = 3 m
             val zNorm = (z / 3f).coerceIn(0f, 1f)
-            for (by in 0 until blockH) depth[by * blockW + bx] = zNorm
+            val nx = (bx + 0.5f) / blockW
+
+            // No real per-row detail (top/bottom-strip disparity is 1D horizontal) —
+            // broadcast this column's estimate across the pyramid's ny-resolution so
+            // every block this column could land in (across near/mid/far tiers) gets it.
+            for (nySample in 0 until NY_SAMPLES) {
+                val ny = (nySample + 0.5f) / NY_SAMPLES
+                val bi = depthToBlockIdx(nx, ny, z)
+                blocks[bi] += zNorm
+                counts[bi]++
+            }
         }
 
-        lastDepthBlocks = depth
+        for (i in 0 until BLOCK_COUNT) {
+            if (counts[i] > 0) blocks[i] /= counts[i].toFloat()
+        }
+        lastDepthBlocks = blocks
+    }
+
+    /**
+     * Map a depth sample at normalised (nx, ny) to the S3.2 pyramid block index.
+     * Identical geometry to [StereoDepthSource.depthToBlockIdx] / [FusedDepthSource]'s
+     * mapPointToBlockIndex — kept as a local copy since each depth source computes its
+     * own (nx, ny, depth) samples independently and there's no shared point type to
+     * hang a common helper off without introducing a cross-source dependency.
+     */
+    private fun depthToBlockIdx(nx: Float, ny: Float, depth: Float): Int {
+        return when {
+            depth < 2f && nx >= 0.20f && nx <= 0.80f -> {
+                val cxFrac = (nx - 0.20f) / 0.60f
+                val bx = (cxFrac * 8f).toInt().coerceIn(0, 7)
+                val by = (ny * 4f).toInt().coerceIn(0, 3)
+                20 + by * 8 + bx
+            }
+            depth < 5f -> {
+                val bx = (nx * 4f).toInt().coerceIn(0, 3)
+                val by = (ny * 4f).toInt().coerceIn(0, 3)
+                4 + by * 4 + bx
+            }
+            else -> {
+                val bx = (nx * 2f).toInt().coerceIn(0, 1)
+                val by = (ny * 2f).toInt().coerceIn(0, 1)
+                by * 2 + bx
+            }
+        }
     }
 
     /** Estimate horizontal pixel shift between top strips of two frames via SAD. */

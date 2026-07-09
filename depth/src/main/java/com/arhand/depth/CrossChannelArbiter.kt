@@ -34,14 +34,16 @@ import kotlin.math.sqrt
  *   CH_DA2     — Depth Anything v2 monocular depth
  *   CH_LCA     — lens chromatic aberration depth
  *   CH_XR      — ARCore XR metric depth
- *   CH_POL     — polarimetric depth (not yet ported)
- *   CH_FLARE   — flare-suppressed depth
- *   CH_MOIRE   — moiré-suppressed depth
- *   CH_RS      — rolling-shutter stereo
- *   CH_STEREO  — dual-camera stereo (not yet ported)
+ *   CH_POL     — polarimetric depth (hardware-infeasible on phone cameras — see below)
+ *   CH_FLARE   — lens-flare/blown-highlight confidence ([FlareDetector])
+ *   CH_MOIRE   — moiré-interference confidence ([MoireDetector])
+ *   CH_RS      — rolling-shutter stereo (baseWeight 0 by design — see CH_RS below)
+ *   CH_STEREO  — dual-camera stereo
  *
- * Unimplemented channels (POL, FLARE, MOIRE, STEREO) should be supplied as all-zero
- * arrays; the Gaussian gate will assign them near-zero weight automatically.
+ * CH_POL (polarimetric depth) is permanently supplied as an all-zero array — it needs a
+ * polarization-filter sensor no phone camera has, so there's nothing to "finish" here in
+ * software; the Gaussian gate assigns it near-zero weight automatically like any other
+ * all-zero channel.
  */
 class CrossChannelArbiter(private val blockCount: Int) {
 
@@ -59,17 +61,19 @@ class CrossChannelArbiter(private val blockCount: Int) {
         const val CH_DA2    = 4   // Depth Anything v2 monocular depth
         const val CH_LCA    = 5   // lens chromatic aberration
         const val CH_XR     = 6   // ARCore XR metric depth
-        const val CH_POL    = 7   // polarimetric (not yet ported)
-        const val CH_FLARE  = 8   // flare-suppressed
-        const val CH_MOIRE  = 9   // moiré-suppressed
+        const val CH_POL    = 7   // polarimetric — hardware-infeasible, permanently zeroed
+        const val CH_FLARE  = 8   // lens-flare/highlight confidence
+        const val CH_MOIRE  = 9   // moiré-interference confidence
         const val CH_RS     = 10  // rolling-shutter stereo
-        const val CH_STEREO = 11  // dual-camera stereo (not yet ported)
+        const val CH_STEREO = 11  // dual-camera stereo
     }
 
     /**
      * Base weights (prior) for the 12 channels.
      * XR dominates when available; SL/PSP are high precision; DA2 covers the monocular case.
-     * Unported channels (POL, FLARE, MOIRE, STEREO) receive minimal prior weight.
+     * CH_POL receives minimal prior weight since it's permanently zeroed (hardware-infeasible).
+     * CH_RS is implemented but its prior is 0 on physical grounds, not because it's
+     * unimplemented — see below.
      */
     val baseWeights = floatArrayOf(
         0.06f,  // CH_BASE   — quality composite fallback
@@ -79,11 +83,14 @@ class CrossChannelArbiter(private val blockCount: Int) {
         0.19f,  // CH_DA2    — monocular depth, continuous and spatially dense (+0.06 from PSP)
         0.03f,  // CH_LCA    — minor lens correction
         0.38f,  // CH_XR     — ARCore metric, most accurate source (+0.06 from PSP)
-        0.01f,  // CH_POL    — not ported
+        0.01f,  // CH_POL    — permanently zeroed; hardware-infeasible on phone cameras
         0.03f,  // CH_FLARE  — artefact suppression
         0.03f,  // CH_MOIRE  — artefact suppression
-        0.00f,  // CH_RS     — rolling-shutter stereo (zeroed: <0.1mm baseline → SNR≈0)
-        0.01f   // CH_STEREO — not ported
+        0.00f,  // CH_RS     — rolling-shutter stereo (prior zeroed: <0.1mm baseline → SNR≈0
+                //             during normal hand tremor; real signal is fed in, so the
+                //             per-block agreement gate can still surface it when a scan's
+                //             deliberate camera sweep gives a usable baseline)
+        0.01f   // CH_STEREO — minor prior; dual-lens hardware is uncommon and unverified per-device
     )
 
     init { require(baseWeights.size == CHANNEL_COUNT) }

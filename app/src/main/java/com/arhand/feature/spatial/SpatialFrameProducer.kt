@@ -315,7 +315,10 @@ class SpatialFrameProducer(
                 aspect        = aspect,
                 mirrorX       = isFrontCamera,
                 bodyWristHint = bodyWristPos,
-                bodyWristVis  = bodyWristVis
+                bodyWristVis  = bodyWristVis,
+                // See AppViewModel's equivalent call — without the real camera-capture
+                // aspect, landmarkToWorld's crop compensation silently no-ops.
+                camAspect     = latestBitmap?.let { it.width.toFloat() / it.height.toFloat() } ?: aspect
             )
             val retarget = raw?.let { r ->
                 val smoothed = qEma.apply(r)
@@ -341,7 +344,8 @@ class SpatialFrameProducer(
                 aspect        = aspect,
                 mirrorX       = isFrontCamera,
                 bodyWristHint = bodyWristPos,
-                bodyWristVis  = bodyResult?.confidence ?: 0f
+                bodyWristVis  = bodyResult?.confidence ?: 0f,
+                camAspect     = latestBitmap?.let { it.width.toFloat() / it.height.toFloat() } ?: aspect
             )
             val retarget = raw?.let { r ->
                 val smoothed = qEmaSecondary.apply(r)
