@@ -12,10 +12,11 @@ import com.arhand.depth.HandSegmentationMask
 import com.arhand.depth.TSDFVolume
 import com.arhand.util.Vec3
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
+import java.util.concurrent.Executors
 
 /**
  * SpatialFrameRouter — consumes [SpatialFrame] and distributes to all output systems.
@@ -37,8 +38,15 @@ import kotlinx.coroutines.launch
  *
  * ## Thread safety
  *
- * Runs on [Dispatchers.Default]. All outputs that touch the GL thread (renderer) use
- * @Volatile writes or AtomicReference internally as before.
+ * Runs on a dedicated single-thread dispatcher, not [kotlinx.coroutines.Dispatchers.Default] —
+ * that pool is shared with long, non-suspending CPU-bound work (DA2's per-frame CNN
+ * inference, SlamLite's optical flow), which can occupy every worker thread for the
+ * duration of a single pass. Routing every [SpatialFrame] (which drives the renderer's
+ * retarget result, OSC streaming, and motion-capture recording) through that same pool
+ * meant it could be starved for however long those passes take, making the retargeted
+ * puppet visibly lag behind — and drift out of sync with — the raw hand overlay. All
+ * outputs that touch the GL thread (renderer) use @Volatile writes or AtomicReference
+ * internally as before.
  */
 class SpatialFrameRouter(
     private val scope:        CoroutineScope,
@@ -84,10 +92,15 @@ class SpatialFrameRouter(
 
     private var routerJob: Job? = null
 
+    // Dedicated thread — see the class-level "Thread safety" note above.
+    private val routerDispatcher = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "SpatialFrameRouter").apply { isDaemon = true }
+    }.asCoroutineDispatcher()
+
     // ── Start / stop ──────────────────────────────────────────────────────────
 
     fun start(frames: SharedFlow<SpatialFrame>) {
-        routerJob = scope.launch(Dispatchers.Default) {
+        routerJob = scope.launch(routerDispatcher) {
             frames.collect { frame -> route(frame) }
         }
     }
