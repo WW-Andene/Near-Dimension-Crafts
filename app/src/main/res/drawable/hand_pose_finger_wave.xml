@@ -1,0 +1,17 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="220dp"
+    android:height="220dp"
+    android:viewportWidth="220"
+    android:viewportHeight="220">
+    <!-- Wave pattern on fingers -->
+    <path
+        android:pathData="M110,190 C90,190 76,176 76,156 L76,100 C76,91 83,84 92,84 C101,84 108,91 108,100 L108,75 C108,66 115,59 124,59 C133,59 140,66 140,75 L140,100 C140,91 147,84 156,84 C165,84 172,91 172,100 L172,120 C172,111 179,104 188,104 C197,104 204,111 204,120 L204,156 C204,176 190,190 168,190 Z"
+        android:strokeColor="#00FFE5"
+        android:strokeWidth="2"
+        android:fillColor="#1A00FFE5" />
+    <path
+        android:pathData="M76,80 C80,70 84,60 80,50 M108,72 C112,62 116,52 112,42 M140,72 C144,62 148,52 144,42 M172,80 C176,70 180,60 176,50"
+        android:strokeColor="#00FFE5"
+        android:strokeWidth="1.5"
+        android:fillColor="#00000000" />
+</vector>

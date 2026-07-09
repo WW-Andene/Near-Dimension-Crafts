@@ -1,0 +1,27 @@
+## Android build outputs
+.gradle/
+build/
+*.apk
+*.aab
+*.ap_
+
+## Local config — never commit
+local.properties
+keystore.jks
+*.keystore
+*.jks
+
+## IDE files
+.idea/
+*.iml
+.DS_Store
+
+## Claude Code session data
+.claude/
+
+## Gradle caches
+.gradle
+**/build/
+
+## Kotlin incremental compilation
+**/.kotlin/

@@ -1,0 +1,18 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="220dp"
+    android:height="220dp"
+    android:viewportWidth="220"
+    android:viewportHeight="220">
+    <!-- Hand seen from the side (profile) -->
+    <path
+        android:pathData="M140,185 C120,185 105,170 105,150 L105,80 C105,70 112,62 122,62 C132,62 140,70 140,80 L140,60 C140,50 148,42 158,42 C168,42 176,50 176,60 L176,80 C176,70 184,62 194,62 C194,62 200,70 196,82 L180,150 C178,170 162,185 140,185 Z"
+        android:strokeColor="#00FFE5"
+        android:strokeWidth="2"
+        android:fillColor="#1A00FFE5" />
+    <!-- Wrist/palm profile -->
+    <path
+        android:pathData="M105,150 C105,150 90,148 80,155 C70,162 72,178 85,182 L140,185"
+        android:strokeColor="#00FFE5"
+        android:strokeWidth="2"
+        android:fillColor="#1A00FFE5" />
+</vector>

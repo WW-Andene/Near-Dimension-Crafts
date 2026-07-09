@@ -1,0 +1,18 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="220dp"
+    android:height="220dp"
+    android:viewportWidth="220"
+    android:viewportHeight="220">
+    <!-- Closed fist -->
+    <path
+        android:pathData="M75,175 C58,168 50,150 52,133 L58,100 C60,88 70,80 82,82 L82,78 C82,68 90,60 100,60 C110,60 118,68 118,78 L118,82 C128,78 140,84 144,95 L152,118 C160,140 154,164 136,174 Z"
+        android:strokeColor="#00FFE5"
+        android:strokeWidth="2"
+        android:fillColor="#1A00FFE5" />
+    <!-- Knuckle lines -->
+    <path
+        android:pathData="M65,100 C80,96 100,94 120,98 M62,112 C78,108 102,106 126,110"
+        android:strokeColor="#00FFE5"
+        android:strokeWidth="1"
+        android:fillColor="#00000000" />
+</vector>

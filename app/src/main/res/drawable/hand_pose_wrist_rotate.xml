@@ -1,0 +1,23 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="220dp"
+    android:height="220dp"
+    android:viewportWidth="220"
+    android:viewportHeight="220">
+    <!-- Side view of hand with rotation arrows -->
+    <path
+        android:pathData="M70,60 C70,60 60,80 60,110 C60,140 70,165 90,175 C110,185 140,178 155,162 C170,146 172,120 165,100 C158,80 145,65 130,58 C115,51 90,52 70,60 Z"
+        android:strokeColor="#00FFE5"
+        android:strokeWidth="2"
+        android:fillColor="#1A00FFE5" />
+    <!-- Rotation arc arrows -->
+    <path
+        android:pathData="M50,110 A65,65 0 0,1 170,110"
+        android:strokeColor="#00FFE5"
+        android:strokeWidth="1.5"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M160,105 L170,110 L162,118"
+        android:strokeColor="#00FFE5"
+        android:strokeWidth="1.5"
+        android:fillColor="#00000000" />
+</vector>

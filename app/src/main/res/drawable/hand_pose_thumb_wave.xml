@@ -1,0 +1,24 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="220dp"
+    android:height="220dp"
+    android:viewportWidth="220"
+    android:viewportHeight="220">
+    <!-- Fist with thumb extended, wavy arrow -->
+    <path
+        android:pathData="M80,175 C65,168 58,152 60,136 L68,95 C72,82 84,76 94,80 C96,70 104,62 114,62 C124,62 132,70 134,80 C144,76 156,82 160,95 L165,136 C168,152 160,168 145,175 Z"
+        android:strokeColor="#00FFE5"
+        android:strokeWidth="2"
+        android:fillColor="#1A00FFE5" />
+    <!-- Thumb -->
+    <path
+        android:pathData="M60,130 C48,118 40,100 46,84 C52,68 68,62 80,70 L80,95"
+        android:strokeColor="#00FFE5"
+        android:strokeWidth="2"
+        android:fillColor="#1A00FFE5" />
+    <!-- Wave arrows on thumb -->
+    <path
+        android:pathData="M36,76 C40,68 44,60 40,52"
+        android:strokeColor="#00FFE5"
+        android:strokeWidth="1.5"
+        android:fillColor="#00000000" />
+</vector>
