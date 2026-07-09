@@ -1241,11 +1241,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** ASSET-1 — Remove the currently loaded user asset and revert to the default puppet. */
     fun removeAsset() = assetManager.remove()
 
-    fun shareGlb() {
-        val path = scanState.value.exportedGlbPath ?: return
-        // Share intent launched from UI layer
-    }
-
     /**
      * GAP-6 — Re-derive OneEuroFilter parameters from the most recently captured
      * biometric frames and persist them to DataStore.
@@ -1328,7 +1323,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /**
      * Start a new BVH recording session. Clears any previously buffered frames.
-     * The REC button in [ControlPanel] calls this.
+     * The record toggle in [RecordPanel] calls this.
      */
     fun startRecording() {
         recordingManager.markRecordingStarted()

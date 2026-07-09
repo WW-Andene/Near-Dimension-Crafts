@@ -97,8 +97,12 @@ class ModelBudgetManager {
             if (bodyEvery < BODY_THROTTLE_RATE && bodyActive) {
                 bodyEvery = BODY_THROTTLE_RATE
             }
-            // If still over budget, shed face
-            if (total - bodyEma * (bodyEvery - 1) / bodyEvery > FRAME_BUDGET_MS) {
+            // If still over budget, shed face. bodySavings must be gated by bodyActive
+            // the same way `total` above is — bodyEma isn't part of `total` at all
+            // when body is inactive, so subtracting it here would skew this check
+            // against a value that isn't actually contributing to the budget.
+            val bodySavings = if (bodyActive) bodyEma * (bodyEvery - 1) / bodyEvery else 0f
+            if (total - bodySavings > FRAME_BUDGET_MS) {
                 if (faceEvery < FACE_THROTTLE_RATE && faceActive) {
                     faceEvery = FACE_THROTTLE_RATE
                 }

@@ -6,8 +6,8 @@ import com.arhand.scanner.JointRomData
 /**
  * Immutable state snapshot for the scan feature.
  *
- * Collected independently by [com.arhand.ui.DepthScannerPanel] and
- * [com.arhand.ui.ScanResultModal] — changes here don't recompose unrelated screens.
+ * Collected independently by consumers such as [com.arhand.ui.ScanResultModal] —
+ * changes here don't recompose unrelated screens.
  */
 data class ScanState(
     val isActive:              Boolean                  = false,

@@ -48,6 +48,11 @@ class PointCloudStore(private val capacity: Int = 800_000) {
 
         var written = 0
         for (i in 0 until n) {
+            // A single batch larger than the space freed above (or larger than the
+            // whole capacity) would otherwise write past data's bounds — stop and
+            // drop the remainder rather than throw.
+            if (count + written >= capacity) break
+
             val x = batch[i * 4]
             val y = batch[i * 4 + 1]
             val z = batch[i * 4 + 2]

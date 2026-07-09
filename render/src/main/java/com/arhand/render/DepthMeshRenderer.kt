@@ -199,6 +199,9 @@ class DepthMeshRenderer {
     private fun buildProg(v: String, f: String): Int {
         val vs = GLES30.glCreateShader(GLES30.GL_VERTEX_SHADER).also { GLES30.glShaderSource(it, v); GLES30.glCompileShader(it) }
         val fs = GLES30.glCreateShader(GLES30.GL_FRAGMENT_SHADER).also { GLES30.glShaderSource(it, f); GLES30.glCompileShader(it) }
-        return GLES30.glCreateProgram().also { GLES30.glAttachShader(it, vs); GLES30.glAttachShader(it, fs); GLES30.glLinkProgram(it) }
+        return GLES30.glCreateProgram().also {
+            GLES30.glAttachShader(it, vs); GLES30.glAttachShader(it, fs); GLES30.glLinkProgram(it)
+            GLES30.glDeleteShader(vs); GLES30.glDeleteShader(fs)
+        }
     }
 }

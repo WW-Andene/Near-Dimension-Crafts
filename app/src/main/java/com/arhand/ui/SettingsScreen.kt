@@ -37,8 +37,8 @@ import com.arhand.feature.record.TakeEntry
  *  - Recording cap duration
  *  - OEF recalibrate trigger
  *
- * Gap 7 — Accessible from a tab in the mode-separated ControlPanel
- * (SCAN | STREAM | RECORD | SETTINGS).
+ * Gap 7 — Accessible via the SETTINGS button in [BottomToolbar], which sets
+ * [WorkflowMode.SETTINGS] to show this screen as an overlay.
  */
 @Composable
 fun SettingsScreen(

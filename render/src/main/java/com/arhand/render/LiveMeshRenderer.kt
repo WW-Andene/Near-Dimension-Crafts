@@ -243,6 +243,8 @@ class LiveMeshRenderer {
                 GLES30.glAttachShader(it, vs)
                 GLES30.glAttachShader(it, fs)
                 GLES30.glLinkProgram(it)
+                GLES30.glDeleteShader(vs)
+                GLES30.glDeleteShader(fs)
             }
     }
 }

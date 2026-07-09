@@ -485,6 +485,8 @@ class HandRenderer {
             GLES30.glAttachShader(it, vert)
             GLES30.glAttachShader(it, frag)
             GLES30.glLinkProgram(it)
+            GLES30.glDeleteShader(vert)
+            GLES30.glDeleteShader(frag)
         }
     }
 

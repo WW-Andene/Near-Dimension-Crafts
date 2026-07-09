@@ -205,10 +205,14 @@ class DepthCloudRenderer(private val store: PointCloudStore? = null) : GLSurface
     private fun buildProgram(vertSrc: String, fragSrc: String): Int {
         fun compile(type: Int, src: String): Int =
             GLES30.glCreateShader(type).also { GLES30.glShaderSource(it, src); GLES30.glCompileShader(it) }
+        val vs = compile(GLES30.GL_VERTEX_SHADER, vertSrc)
+        val fs = compile(GLES30.GL_FRAGMENT_SHADER, fragSrc)
         return GLES30.glCreateProgram().also {
-            GLES30.glAttachShader(it, compile(GLES30.GL_VERTEX_SHADER, vertSrc))
-            GLES30.glAttachShader(it, compile(GLES30.GL_FRAGMENT_SHADER, fragSrc))
+            GLES30.glAttachShader(it, vs)
+            GLES30.glAttachShader(it, fs)
             GLES30.glLinkProgram(it)
+            GLES30.glDeleteShader(vs)
+            GLES30.glDeleteShader(fs)
         }
     }
 }

@@ -124,6 +124,13 @@ class GrayscaleCamera(private val context: Context) {
                 .get(CameraCharacteristics.LENS_FACING) ==
                     CameraCharacteristics.LENS_FACING_BACK
         } ?: return
-        try { manager.setTorchMode(id, on) } catch (_: Throwable) {}
+        try {
+            manager.setTorchMode(id, on)
+        } catch (e: CameraAccessException) {
+            // Expected failure mode — e.g. camera held by another session. Narrowed
+            // from a blanket `catch (_: Throwable)`, which also silently swallowed
+            // unrelated Errors (OutOfMemoryError, etc.) with no trace at all.
+            android.util.Log.w("GrayscaleCamera", "setTorch($on) failed", e)
+        }
     }
 }

@@ -13,8 +13,15 @@ class PointCloudRenderer {
     private var program = 0
     private var pointData: FloatArray = FloatArray(0)
 
+    // VBO allocated once and resized only when it needs to grow — the rest of this
+    // module avoids per-frame glGenBuffers/glDeleteBuffers, and update() may be
+    // called every frame with a similarly-sized cloud.
+    private val vbo = IntArray(1)
+    private var vboCapacityFloats = 0
+
     fun init() {
         program = compileProgram(ShaderPrograms.POINTS_VERT, ShaderPrograms.POINTS_FRAG)
+        GLES30.glGenBuffers(1, vbo, 0)
     }
 
     fun update(points: FloatArray) {
@@ -36,14 +43,23 @@ class PointCloudRenderer {
         val buf = ByteBuffer.allocateDirect(pointData.size * 4)
             .order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(pointData); position(0) }
 
-        val vbo = IntArray(1); GLES30.glGenBuffers(1, vbo, 0)
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vbo[0])
-        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, pointData.size * 4, buf, GLES30.GL_DYNAMIC_DRAW)
+        if (pointData.size > vboCapacityFloats) {
+            GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, pointData.size * 4, buf, GLES30.GL_DYNAMIC_DRAW)
+            vboCapacityFloats = pointData.size
+        } else {
+            GLES30.glBufferSubData(GLES30.GL_ARRAY_BUFFER, 0, pointData.size * 4, buf)
+        }
         val loc = GLES30.glGetAttribLocation(program, "aPosition")
         GLES30.glEnableVertexAttribArray(loc)
         GLES30.glVertexAttribPointer(loc, 3, GLES30.GL_FLOAT, false, 0, 0)
         GLES30.glDrawArrays(GLES30.GL_POINTS, 0, pointData.size / 3)
-        GLES30.glDeleteBuffers(1, vbo, 0)
+    }
+
+    fun release() {
+        if (vbo[0] != 0) { GLES30.glDeleteBuffers(1, vbo, 0); vbo[0] = 0 }
+        if (program != 0) { GLES30.glDeleteProgram(program); program = 0 }
+        vboCapacityFloats = 0
     }
 
     private fun compileProgram(vertSrc: String, fragSrc: String): Int {
@@ -53,6 +69,8 @@ class PointCloudRenderer {
             GLES30.glShaderSource(it, fragSrc); GLES30.glCompileShader(it) }
         return GLES30.glCreateProgram().also {
             GLES30.glAttachShader(it, vert); GLES30.glAttachShader(it, frag)
-            GLES30.glLinkProgram(it) }
+            GLES30.glLinkProgram(it)
+            GLES30.glDeleteShader(vert); GLES30.glDeleteShader(frag)
+        }
     }
 }
