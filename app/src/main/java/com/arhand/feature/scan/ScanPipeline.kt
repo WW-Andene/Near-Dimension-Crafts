@@ -170,8 +170,8 @@ class ScanPipeline {
             if (best != null && best.first.size >= 21) {
                 for ((jointIdx, baseIdx, tipIdx) in BoneRetargeter.BONE_SEGMENTS) {
                     val bl = best.first[baseIdx]; val tl = best.first[tipIdx]
-                    val (bx, by, bz) = com.arhand.util.landmarkToWorld(bl, input.aspect, input.isFrontCamera)
-                    val (tx, ty, tz) = com.arhand.util.landmarkToWorld(tl, input.aspect, input.isFrontCamera)
+                    val (bx, by, bz) = com.arhand.tracking.landmarkToWorld(bl, input.aspect, input.isFrontCamera)
+                    val (tx, ty, tz) = com.arhand.tracking.landmarkToWorld(tl, input.aspect, input.isFrontCamera)
                     rjp[jointIdx * 3]     = (bx + tx) * 0.5f
                     rjp[jointIdx * 3 + 1] = (by + ty) * 0.5f
                     rjp[jointIdx * 3 + 2] = (bz + tz) * 0.5f
