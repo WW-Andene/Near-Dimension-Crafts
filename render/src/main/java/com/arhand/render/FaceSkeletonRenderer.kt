@@ -12,9 +12,10 @@ import java.nio.FloatBuffer
  * Renders the MediaPipe 478-point face mesh skeleton on the GL thread.
  *
  * Draws the standard MediaPipe face mesh connection sets (face oval, eyes, eyebrows,
- * lips) as lines and iris center dots. Coordinates map from image-space (0–1) to GL
- * world-space using the same center-crop projection as [HandRenderer] and
- * [BodySkeletonRenderer]. Must be called from the GL thread only.
+ * lips) as pulsing cyan HUD lines with hot-magenta diamond iris markers, matching the
+ * cyberpunk look of [HandRenderer]/[BodySkeletonRenderer]. Coordinates map from
+ * image-space (0–1) to GL world-space using the same center-crop projection as those
+ * renderers. Must be called from the GL thread only.
  */
 class FaceSkeletonRenderer {
 
@@ -26,6 +27,7 @@ class FaceSkeletonRenderer {
     private var lineProjLoc   = 0
     private var lineColorLoc  = 0
     private var linePosLoc    = 0
+    private var lineTimeLoc   = -1
 
     private var ptModelLoc    = 0
     private var ptViewLoc     = 0
@@ -47,14 +49,15 @@ class FaceSkeletonRenderer {
     fun update(lms: FaceLandmarks?) { pending = lms }
 
     fun init() {
-        lineProgram   = compileProgram(ShaderPrograms.LINE_VERT,   ShaderPrograms.LINE_FRAG)
-        pointsProgram = compileProgram(ShaderPrograms.POINTS_VERT, ShaderPrograms.POINTS_FRAG)
+        lineProgram   = compileProgram(ShaderPrograms.LINE_VERT,   ShaderPrograms.CYBER_LINE_FRAG)
+        pointsProgram = compileProgram(ShaderPrograms.POINTS_VERT, ShaderPrograms.CYBER_POINT_FRAG)
 
         lineModelLoc = GLES30.glGetUniformLocation(lineProgram, "uModel")
         lineViewLoc  = GLES30.glGetUniformLocation(lineProgram, "uView")
         lineProjLoc  = GLES30.glGetUniformLocation(lineProgram, "uProjection")
         lineColorLoc = GLES30.glGetUniformLocation(lineProgram, "uColor")
         linePosLoc   = GLES30.glGetAttribLocation( lineProgram, "aPosition")
+        lineTimeLoc  = GLES30.glGetUniformLocation(lineProgram, "uTime")
 
         ptModelLoc = GLES30.glGetUniformLocation(pointsProgram, "uModel")
         ptViewLoc  = GLES30.glGetUniformLocation(pointsProgram, "uView")
@@ -71,7 +74,8 @@ class FaceSkeletonRenderer {
         proj:         FloatArray,
         mirrorX:      Boolean,
         camAspect:    Float,
-        screenAspect: Float
+        screenAspect: Float,
+        timeSec:      Float = 0f
     ) {
         val lms = pending ?: return
         if (lms.size < FL.COUNT) return
@@ -92,12 +96,13 @@ class FaceSkeletonRenderer {
 
         val model = FloatArray(16).also { Matrix.setIdentityM(it, 0) }
 
-        // Draw face mesh connection lines (golden/orange)
+        // Draw face mesh connection lines (cyberpunk HUD cyan wireframe)
         GLES30.glUseProgram(lineProgram)
         GLES30.glUniformMatrix4fv(lineModelLoc, 1, false, model, 0)
         GLES30.glUniformMatrix4fv(lineViewLoc,  1, false, view,  0)
         GLES30.glUniformMatrix4fv(lineProjLoc,  1, false, proj,  0)
-        GLES30.glUniform4f(lineColorLoc, 1f, 0.72f, 0.22f, 0.75f)
+        GLES30.glUniform4f(lineColorLoc, 0.15f, 0.90f, 1f, 0.75f)
+        if (lineTimeLoc >= 0) GLES30.glUniform1f(lineTimeLoc, timeSec)
 
         val maxVerts = CONNECTIONS.size * 2
         val lineVerts = FloatArray(maxVerts * 3)
@@ -117,8 +122,8 @@ class FaceSkeletonRenderer {
             GLES30.glUniformMatrix4fv(ptModelLoc, 1, false, model, 0)
             GLES30.glUniformMatrix4fv(ptViewLoc,  1, false, view,  0)
             GLES30.glUniformMatrix4fv(ptProjLoc,  1, false, proj,  0)
-            GLES30.glUniform4f(ptColorLoc, 1f, 1f, 1f, 0.95f)
-            GLES30.glUniform1f(ptSizeLoc, 5f)
+            GLES30.glUniform4f(ptColorLoc, 1f, 0.15f, 0.85f, 0.95f)
+            GLES30.glUniform1f(ptSizeLoc, 9f)
 
             val dotVerts = FloatArray(validDots.size * 3)
             validDots.forEachIndexed { i, idx ->

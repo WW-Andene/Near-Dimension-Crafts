@@ -32,7 +32,9 @@ class HandRenderer {
     private var phongProgram  = 0
     private var basicProgram  = 0
     private var lineProgram   = 0
-    private var pointsProgram = 0
+    // Cyberpunk skeleton look (SKELETON mode only) — diamond glow joints + pulsing lines.
+    private var cyberLineProgram   = 0
+    private var cyberPointsProgram = 0
 
     private val vaos = mutableListOf<Int>()
     private val vbos = mutableListOf<Int>()
@@ -71,7 +73,8 @@ class HandRenderer {
     private val phongLoc  = HashMap<String, Int>(32)
     private val basicLoc  = HashMap<String, Int>(8)
     private val lineLoc   = HashMap<String, Int>(8)
-    private val pointsLoc = HashMap<String, Int>(8)
+    private val cyberLineLoc   = HashMap<String, Int>(8)
+    private val cyberPointsLoc = HashMap<String, Int>(8)
 
     private fun cacheLocations() {
         // Phong program uniforms + attribs
@@ -98,17 +101,23 @@ class HandRenderer {
             lineLoc[name] = GLES30.glGetUniformLocation(lineProgram, name)
         lineLoc["aPosition"] = GLES30.glGetAttribLocation(lineProgram, "aPosition")
 
-        // Points program
+        // Cyberpunk line program (adds uTime for the pulse)
+        for (name in listOf("uModel", "uView", "uProjection", "uColor", "uTime"))
+            cyberLineLoc[name] = GLES30.glGetUniformLocation(cyberLineProgram, name)
+        cyberLineLoc["aPosition"] = GLES30.glGetAttribLocation(cyberLineProgram, "aPosition")
+
+        // Cyberpunk points program
         for (name in listOf("uModel", "uView", "uProjection", "uColor", "uPointSize"))
-            pointsLoc[name] = GLES30.glGetUniformLocation(pointsProgram, name)
-        pointsLoc["aPosition"] = GLES30.glGetAttribLocation(pointsProgram, "aPosition")
+            cyberPointsLoc[name] = GLES30.glGetUniformLocation(cyberPointsProgram, name)
+        cyberPointsLoc["aPosition"] = GLES30.glGetAttribLocation(cyberPointsProgram, "aPosition")
     }
 
     fun init() {
         phongProgram  = compileProgram(ShaderPrograms.PHONG_VERT,  ShaderPrograms.PHONG_FRAG)
         basicProgram  = compileProgram(ShaderPrograms.BASIC_VERT,  ShaderPrograms.BASIC_FRAG)
         lineProgram   = compileProgram(ShaderPrograms.LINE_VERT,   ShaderPrograms.LINE_FRAG)
-        pointsProgram = compileProgram(ShaderPrograms.POINTS_VERT, ShaderPrograms.POINTS_FRAG)
+        cyberLineProgram   = compileProgram(ShaderPrograms.LINE_VERT,   ShaderPrograms.CYBER_LINE_FRAG)
+        cyberPointsProgram = compileProgram(ShaderPrograms.POINTS_VERT, ShaderPrograms.CYBER_POINT_FRAG)
 
         GLES30.glGenVertexArrays(1, meshVao, 0)
         GLES30.glGenBuffers(2, meshVbo, 0)
@@ -285,7 +294,8 @@ class HandRenderer {
     private fun drawSkeleton(pts: List<Vec3>, lms: HandLandmarks, view: FloatArray, proj: FloatArray, timeSec: Float) {
         val model = FloatArray(16).also { Matrix.setIdentityM(it, 0) }
 
-        // Compute per-frame velocity → color lerp t [0..1]: cyan [0,229,255] → orange [255,140,0]
+        // Cyberpunk HUD look: neon magenta at rest → electric cyan on fast motion,
+        // diamond glow joints (CYBER_POINT_FRAG), pulsing energy lines (CYBER_LINE_FRAG).
         val prev = prevPts
         if (prev != null && prev.size == pts.size) {
             var sumDist = 0f
@@ -297,13 +307,18 @@ class HandRenderer {
         }
         prevPts = pts
         val t = velocity
-        val cr = t; val cg = 0.898f - 0.349f * t; val cb = 1f - t
+        // rest: hot magenta (1.00, 0.12, 0.85) → motion: electric cyan (0.10, 0.95, 1.00)
+        val cr = 1.00f - 0.90f * t
+        val cg = 0.12f + 0.83f * t
+        val cb = 0.85f + 0.15f * t
 
-        // ── All 23 connections — single dim color ────────────────────────────
-        GLES30.glUseProgram(lineProgram)
-        setMatrixUniforms(lineProgram, model, view, proj)
-        val colorLoc = lineLoc["uColor"] ?: return
-        GLES30.glUniform4f(colorLoc, cr, cg, cb, 0.35f)
+        // ── All 23 connections — pulsing neon lines ───────────────────────────
+        GLES30.glUseProgram(cyberLineProgram)
+        setMatrixUniforms(cyberLineProgram, model, view, proj)
+        val colorLoc = cyberLineLoc["uColor"] ?: return
+        val lineTimeLoc = cyberLineLoc["uTime"] ?: -1
+        GLES30.glUniform4f(colorLoc, cr, cg, cb, 0.55f)
+        if (lineTimeLoc >= 0) GLES30.glUniform1f(lineTimeLoc, timeSec)
 
         var vi = 0
         var ci = 0
@@ -321,7 +336,7 @@ class HandRenderer {
             GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, linesScratchVbo[0])
             GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, vi * 4, skeletonScratchBuf, GLES30.GL_DYNAMIC_DRAW)
             skeletonScratchBuf.limit(skeletonScratchBuf.capacity())
-            val posLoc = lineLoc["aPosition"] ?: -1
+            val posLoc = cyberLineLoc["aPosition"] ?: -1
             if (posLoc >= 0) {
                 GLES30.glEnableVertexAttribArray(posLoc)
                 GLES30.glVertexAttribPointer(posLoc, 3, GLES30.GL_FLOAT, false, 0, 0)
@@ -329,20 +344,20 @@ class HandRenderer {
             GLES30.glDrawArrays(GLES30.GL_LINES, 0, vi / 3)
         }
 
-        // ── Joint dots — 3 size passes, same bright hand color ───────────────
-        GLES30.glUseProgram(pointsProgram)
-        setMatrixUniforms(pointsProgram, model, view, proj)
-        val ptColorLoc = pointsLoc["uColor"] ?: return
-        val ptSizeLoc  = pointsLoc["uPointSize"] ?: -1
-        val ptPosLoc   = pointsLoc["aPosition"]  ?: -1
-        GLES30.glUniform4f(ptColorLoc, cr, cg, cb, 0.85f)
+        // ── Joint dots — 3 size passes, diamond glow markers ──────────────────
+        GLES30.glUseProgram(cyberPointsProgram)
+        setMatrixUniforms(cyberPointsProgram, model, view, proj)
+        val ptColorLoc = cyberPointsLoc["uColor"] ?: return
+        val ptSizeLoc  = cyberPointsLoc["uPointSize"] ?: -1
+        val ptPosLoc   = cyberPointsLoc["aPosition"]  ?: -1
+        GLES30.glUniform4f(ptColorLoc, cr, cg, cb, 0.9f)
 
-        // Wrist — largest dot
-        drawDotsV11(pts, intArrayOf(0), ptPosLoc, ptSizeLoc, 20f)
-        // Fingertips — medium dot
-        drawDotsV11(pts, intArrayOf(4, 8, 12, 16, 20), ptPosLoc, ptSizeLoc, 16f)
-        // All other joints — small dot
-        drawDotsV11(pts, intArrayOf(1,2,3, 5,6,7, 9,10,11, 13,14,15, 17,18,19), ptPosLoc, ptSizeLoc, 10f)
+        // Wrist — reactor-core marker, largest
+        drawDotsV11(pts, intArrayOf(0), ptPosLoc, ptSizeLoc, 26f)
+        // Fingertips — medium
+        drawDotsV11(pts, intArrayOf(4, 8, 12, 16, 20), ptPosLoc, ptSizeLoc, 18f)
+        // All other joints — small
+        drawDotsV11(pts, intArrayOf(1,2,3, 5,6,7, 9,10,11, 13,14,15, 17,18,19), ptPosLoc, ptSizeLoc, 12f)
     }
 
     private fun drawDotsV11(pts: List<Vec3>, indices: IntArray, posLoc: Int, sizeLoc: Int, size: Float) {
@@ -378,7 +393,18 @@ class HandRenderer {
     }
 
     private fun setMatrixUniforms(prog: Int, model: FloatArray, view: FloatArray, proj: FloatArray) {
-        val locs = if (prog == phongProgram) phongLoc else if (prog == basicProgram) basicLoc else lineLoc
+        // Each compiled program gets its own uniform-location numbering — reusing
+        // one program's cached locations for a different program only "works" if
+        // the GLSL compiler happens to assign matching indices, which isn't
+        // guaranteed. Every program used here needs its own map.
+        val locs = when (prog) {
+            phongProgram        -> phongLoc
+            basicProgram        -> basicLoc
+            lineProgram         -> lineLoc
+            cyberLineProgram    -> cyberLineLoc
+            cyberPointsProgram  -> cyberPointsLoc
+            else                -> error("setMatrixUniforms: unknown program $prog")
+        }
         GLES30.glUniformMatrix4fv(locs["uModel"]!!,      1, false, model, 0)
         GLES30.glUniformMatrix4fv(locs["uView"]!!,       1, false, view,  0)
         GLES30.glUniformMatrix4fv(locs["uProjection"]!!, 1, false, proj,  0)

@@ -189,6 +189,43 @@ object ShaderPrograms {
         }
     """.trimIndent()
 
+    // ─── Cyberpunk skeleton shaders ────────────────────────────────────────
+    // Reuses POINTS_VERT/LINE_VERT — only the fragment stage changes. Kept
+    // separate from POINTS_FRAG/LINE_FRAG so the dense point-cloud/depth-cloud
+    // renderers keep their plain circular/flat look; this is specifically for
+    // HandRenderer/BodySkeletonRenderer/FaceSkeletonRenderer's SKELETON mode.
+
+    /** Diamond joint marker with a bright core and soft outer glow (HUD/hologram look). */
+    val CYBER_POINT_FRAG = """
+        #version 300 es
+        precision highp float;
+        uniform vec4 uColor;
+        out vec4 fragColor;
+        void main() {
+            vec2 c = gl_PointCoord - vec2(0.5);
+            // L1 (taxicab) distance from centre — diamond silhouette instead of a circle
+            float d = abs(c.x) + abs(c.y);
+            if (d > 0.5) discard;
+            float glow = 1.0 - smoothstep(0.0, 0.5, d);
+            float core = 1.0 - smoothstep(0.0, 0.14, d);
+            vec3 col = uColor.rgb + vec3(core * 0.85);   // hot white-core center
+            fragColor = vec4(col, uColor.a * (0.4 + 0.6 * glow));
+        }
+    """.trimIndent()
+
+    /** Thin energy-line look: subtle sine pulse on brightness, same geometry as LINE_VERT. */
+    val CYBER_LINE_FRAG = """
+        #version 300 es
+        precision highp float;
+        uniform vec4  uColor;
+        uniform float uTime;
+        out vec4 fragColor;
+        void main() {
+            float pulse = 0.82 + 0.18 * sin(uTime * 3.1);
+            fragColor = vec4(uColor.rgb * pulse, uColor.a);
+        }
+    """.trimIndent()
+
     // ─── Camera passthrough shaders ───────────────────────────────────────
     // Draws the camera Bitmap as a fullscreen background quad.
     // uMirrorX flips U for front-facing camera correction.

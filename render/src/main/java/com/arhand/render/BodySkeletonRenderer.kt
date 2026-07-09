@@ -11,13 +11,14 @@ import java.nio.FloatBuffer
 /**
  * Renders the MediaPipe 33-point body pose skeleton on the GL thread.
  *
- * Connections are colour-coded by body side (left=cyan, right=coral, centre=light-gray)
- * to match the standard MediaPipe pose visualisation convention. Connections and joints
- * whose endpoint visibility falls below [VIS_THRESHOLD] are skipped, so occluded limbs
- * fade out naturally rather than floating as ghost geometry.
+ * Connections are colour-coded by body side (left=electric cyan, right=hot magenta,
+ * centre=cool white) in a cyberpunk/HUD duotone. Connections and joints whose endpoint
+ * visibility falls below [VIS_THRESHOLD] are skipped, so occluded limbs fade out
+ * naturally rather than floating as ghost geometry.
  *
- * Uses [ShaderPrograms.LINE_VERT]/[LINE_FRAG] for connections and
- * [ShaderPrograms.POINTS_VERT]/[POINTS_FRAG] for joint dots.
+ * Uses [ShaderPrograms.LINE_VERT]/[CYBER_LINE_FRAG] (pulsing energy lines) for
+ * connections and [ShaderPrograms.POINTS_VERT]/[CYBER_POINT_FRAG] (diamond glow
+ * markers) for joint dots.
  */
 class BodySkeletonRenderer {
 
@@ -29,6 +30,7 @@ class BodySkeletonRenderer {
     private var lineProjLoc   = 0
     private var lineColorLoc  = 0
     private var linePosLoc    = 0
+    private var lineTimeLoc   = 0
 
     private var ptModelLoc    = 0
     private var ptViewLoc     = 0
@@ -54,14 +56,15 @@ class BodySkeletonRenderer {
     fun update(lms: PoseLandmarks?) { pending = lms }
 
     fun init() {
-        lineProgram   = compileProgram(ShaderPrograms.LINE_VERT,   ShaderPrograms.LINE_FRAG)
-        pointsProgram = compileProgram(ShaderPrograms.POINTS_VERT, ShaderPrograms.POINTS_FRAG)
+        lineProgram   = compileProgram(ShaderPrograms.LINE_VERT,   ShaderPrograms.CYBER_LINE_FRAG)
+        pointsProgram = compileProgram(ShaderPrograms.POINTS_VERT, ShaderPrograms.CYBER_POINT_FRAG)
 
         lineModelLoc = GLES30.glGetUniformLocation(lineProgram, "uModel")
         lineViewLoc  = GLES30.glGetUniformLocation(lineProgram, "uView")
         lineProjLoc  = GLES30.glGetUniformLocation(lineProgram, "uProjection")
         lineColorLoc = GLES30.glGetUniformLocation(lineProgram, "uColor")
         linePosLoc   = GLES30.glGetAttribLocation( lineProgram, "aPosition")
+        lineTimeLoc  = GLES30.glGetUniformLocation(lineProgram, "uTime")
 
         ptModelLoc = GLES30.glGetUniformLocation(pointsProgram, "uModel")
         ptViewLoc  = GLES30.glGetUniformLocation(pointsProgram, "uView")
@@ -78,7 +81,8 @@ class BodySkeletonRenderer {
         proj:         FloatArray,
         mirrorX:      Boolean,
         camAspect:    Float,
-        screenAspect: Float
+        screenAspect: Float,
+        timeSec:      Float = 0f
     ) {
         val lms = pending ?: return
         if (lms.size < PL.COUNT) return
@@ -106,21 +110,23 @@ class BodySkeletonRenderer {
         GLES30.glUniformMatrix4fv(lineModelLoc, 1, false, model, 0)
         GLES30.glUniformMatrix4fv(lineViewLoc,  1, false, view,  0)
         GLES30.glUniformMatrix4fv(lineProjLoc,  1, false, proj,  0)
+        if (lineTimeLoc >= 0) GLES30.glUniform1f(lineTimeLoc, timeSec)
 
-        drawLineGroup(LEFT_CONNS,   0f,   0.85f, 1f,    0.85f, xs, ys, zs, vis)  // cyan
-        drawLineGroup(CENTER_CONNS, 0.9f, 0.9f,  0.9f,  0.80f, xs, ys, zs, vis)  // light gray
-        drawLineGroup(RIGHT_CONNS,  1f,   0.4f,  0.3f,  0.85f, xs, ys, zs, vis)  // coral
+        // Cyberpunk duotone: left=electric cyan, right=hot magenta, centre=cool white
+        drawLineGroup(LEFT_CONNS,   0.10f, 0.85f, 1f,    0.55f, xs, ys, zs, vis)
+        drawLineGroup(CENTER_CONNS, 0.85f, 0.90f, 1f,    0.45f, xs, ys, zs, vis)
+        drawLineGroup(RIGHT_CONNS,  1f,    0.15f, 0.80f, 0.55f, xs, ys, zs, vis)
 
-        // Joint dots — same colour groups
+        // Joint dots — same colour groups, diamond glow markers
         GLES30.glUseProgram(pointsProgram)
         GLES30.glUniformMatrix4fv(ptModelLoc, 1, false, model, 0)
         GLES30.glUniformMatrix4fv(ptViewLoc,  1, false, view,  0)
         GLES30.glUniformMatrix4fv(ptProjLoc,  1, false, proj,  0)
-        GLES30.glUniform1f(ptSizeLoc, 10f)
+        GLES30.glUniform1f(ptSizeLoc, 14f)
 
-        drawDotGroup(LEFT_JOINTS,   0f,   0.85f, 1f,    0.9f, xs, ys, zs, vis)
-        drawDotGroup(CENTER_JOINTS, 1f,   1f,    1f,    0.9f, xs, ys, zs, vis)
-        drawDotGroup(RIGHT_JOINTS,  1f,   0.4f,  0.3f,  0.9f, xs, ys, zs, vis)
+        drawDotGroup(LEFT_JOINTS,   0.10f, 0.85f, 1f,    0.9f, xs, ys, zs, vis)
+        drawDotGroup(CENTER_JOINTS, 0.85f, 0.90f, 1f,    0.9f, xs, ys, zs, vis)
+        drawDotGroup(RIGHT_JOINTS,  1f,    0.15f, 0.80f, 0.9f, xs, ys, zs, vis)
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────

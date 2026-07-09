@@ -76,6 +76,14 @@ class DepthMeshRenderer {
 
     fun draw(view: FloatArray, proj: FloatArray, mode: RenderMode) {
         if (meshPositions.isEmpty()) return
+        // Only relevant to the two modes that actually mean "show me the scanned
+        // mesh" — renderer.depthMeshPositions is set once after a scan completes
+        // and never cleared (the mesh is kept around intentionally, for viewing/
+        // export), so without this gate the reconstructed mesh keeps rendering
+        // on top of the live camera feed in every other mode too, including
+        // SKELETON — a solid, wrongly-scaled blob was showing up as a giant
+        // circle over ordinary hand tracking.
+        if (mode != RenderMode.MESH && mode != RenderMode.WIREFRAME) return
 
         if (geometryDirty) {
             uploadGeometry(meshPositions)
