@@ -91,6 +91,17 @@ class BoneRetargeter(private val bindPose: BindPose) {
         )
 
         /**
+         * Maps a MediaPipe hand landmark index (LM.*) to the joint slot index
+         * (JOINT_*, 0..[JOINT_COUNT]-1) whose tip it drives. Used to translate
+         * [BONE_SEGMENTS]' landmark-index space into the slot-index space that
+         * `jointNodeIndices` (glTF skin joint order) and [JOINT_COUNT]-sized
+         * arrays like `bonePalette` are keyed by — landmark indices and joint
+         * slot indices are different spaces and must not be used interchangeably.
+         */
+        val LANDMARK_TO_JOINT_SLOT: Map<Int, Int> =
+            BONE_SEGMENTS.associate { (jointIdx, _, tipIdx) -> tipIdx to jointIdx } + (LM.WRIST to JOINT_WRIST)
+
+        /**
          * Build a symmetric bind pose where all fingers point straight up (+Y)
          * and the thumb points diagonally (+X, +Y). Used as the default bind pose
          * when loading an asset with no explicit hand skeleton.

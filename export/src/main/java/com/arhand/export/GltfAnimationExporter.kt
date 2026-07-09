@@ -5,6 +5,7 @@ import com.arhand.mocap.LoadedAsset
 import com.arhand.mocap.MotionRecorder
 import com.arhand.mocap.Quaternion
 import com.arhand.mocap.WristTransform
+import com.arhand.util.Vec3
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -313,11 +314,28 @@ object GltfAnimationExporter {
             nodesArr.put(meshNode)
         }
 
-        // Joint nodes — include "children" arrays for proper hierarchy composition
+        // Joint nodes — include "children" arrays for proper hierarchy composition.
+        // Each non-root joint also gets a rest-pose "translation": glTF nodes default
+        // to [0,0,0], which would place every joint at its parent's origin — the
+        // hierarchy would be topologically correct but geometrically collapsed to a
+        // point. Derive it from the asset's own bind-pose bone direction (falling
+        // back to the generic symmetric pose) scaled by the same per-joint bone
+        // lengths MotionRecorder's BVH export uses, so the two exporters agree.
+        val fallbackBindPose = BoneRetargeter.symmetricBindPose()
         for (jointIdx in JOINT_ORDER) {
             val name     = JOINT_NODE_NAMES[jointIdx] ?: "Joint$jointIdx"
             val children = jointChildren[jointIdx]
             val node     = JSONObject().put("name", name)
+
+            if (jointIdx != BoneRetargeter.JOINT_WRIST) {
+                val dir = asset.bindPose.boneDirections[jointIdx]
+                    ?: fallbackBindPose.boneDirections[jointIdx]
+                    ?: Vec3(0f, 1f, 0f)
+                val length = MotionRecorder.BONE_LENGTH[jointIdx] ?: 0.03f
+                val t = dir * length
+                node.put("translation", JSONArray().put(t.x.toDouble()).put(t.y.toDouble()).put(t.z.toDouble()))
+            }
+
             if (!children.isNullOrEmpty()) {
                 val childArr = JSONArray()
                 children.forEach { childArr.put(jointNodeIdx(it)) }

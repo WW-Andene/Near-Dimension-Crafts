@@ -14,21 +14,34 @@ import kotlinx.coroutines.flow.SharedFlow
  * by CameraX — no manual sensor-orientation + display-rotation calculation needed.
  *
  * Pre-allocated pixel buffers are reused every frame after warm-up to avoid
- * per-frame heap allocation.
+ * per-frame heap allocation, but rotated through a small [POOL_SIZE] pool rather
+ * than a single shared instance: with [_frames]'s buffer capacity of 2, up to
+ * `2 + 1` (buffered + in-flight collector) Bitmaps can be alive at once, so
+ * reusing just one buffer let a slow collector read pixels being overwritten by
+ * the next frame(s). Cycling through [POOL_SIZE] buffers keeps each emitted
+ * Bitmap stable until the pool wraps back around to it.
  */
 class CameraFrameProvider {
+    private companion object {
+        // extraBufferCapacity (2) + 1 in-flight collector reference.
+        const val POOL_SIZE = 3
+    }
+
     private val _frames = MutableSharedFlow<Bitmap>(extraBufferCapacity = 2)
     val frames: SharedFlow<Bitmap> = _frames
 
     /** Set by CameraController on each bind — used by SpatialFrameProducer for mirror logic. */
     @Volatile var isFrontCamera: Boolean = true
 
-    private var argbPixels:  IntArray? = null
-    private var outputBitmap: Bitmap?  = null
+    private val argbPixelsPool  = arrayOfNulls<IntArray>(POOL_SIZE)
+    private val outputBitmapPool = arrayOfNulls<Bitmap>(POOL_SIZE)
     private var lastWidth  = 0
     private var lastHeight = 0
-    private var rotatedBitmap: Bitmap? = null
-    private var rotatedCanvas: Canvas? = null
+    private var yuvPoolIndex = 0
+
+    private val rotatedBitmapPool = arrayOfNulls<Bitmap>(POOL_SIZE)
+    private val rotatedCanvasPool = arrayOfNulls<Canvas>(POOL_SIZE)
+    private var rotatedPoolIndex = 0
 
     fun onImageProxy(proxy: ImageProxy) {
         try {
@@ -38,12 +51,14 @@ class CameraFrameProvider {
             val toEmit = if (rotDeg != 0) {
                 val (rw, rh) = if (rotDeg == 90 || rotDeg == 270)
                     bitmap.height to bitmap.width else bitmap.width to bitmap.height
-                val rot = rotatedBitmap?.takeIf { it.width == rw && it.height == rh }
+
+                rotatedPoolIndex = (rotatedPoolIndex + 1) % POOL_SIZE
+                val rot = rotatedBitmapPool[rotatedPoolIndex]?.takeIf { it.width == rw && it.height == rh }
                     ?: Bitmap.createBitmap(rw, rh, Bitmap.Config.ARGB_8888).also {
-                        rotatedBitmap = it
-                        rotatedCanvas = Canvas(it)
+                        rotatedBitmapPool[rotatedPoolIndex] = it
+                        rotatedCanvasPool[rotatedPoolIndex] = Canvas(it)
                     }
-                val canvas = rotatedCanvas!!
+                val canvas = rotatedCanvasPool[rotatedPoolIndex]!!
                 val matrix = Matrix()
                 matrix.postTranslate(-bitmap.width / 2f, -bitmap.height / 2f)
                 matrix.postRotate(rotDeg.toFloat())
@@ -63,14 +78,17 @@ class CameraFrameProvider {
         val width  = image.width
         val height = image.height
 
-        if (width != lastWidth || height != lastHeight || argbPixels == null) {
-            argbPixels   = IntArray(width * height)
-            outputBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        if (width != lastWidth || height != lastHeight || argbPixelsPool[0] == null) {
+            for (i in 0 until POOL_SIZE) {
+                argbPixelsPool[i]   = IntArray(width * height)
+                outputBitmapPool[i] = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            }
             lastWidth    = width
             lastHeight   = height
         }
-        val pixels = argbPixels!!
-        val bitmap = outputBitmap!!
+        yuvPoolIndex = (yuvPoolIndex + 1) % POOL_SIZE
+        val pixels = argbPixelsPool[yuvPoolIndex]!!
+        val bitmap = outputBitmapPool[yuvPoolIndex]!!
 
         val yPlane = image.planes[0]
         val uPlane = image.planes[1]

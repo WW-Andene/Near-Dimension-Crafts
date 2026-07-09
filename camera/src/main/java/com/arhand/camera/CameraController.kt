@@ -33,13 +33,19 @@ class CameraController(
 
     private var cameraProvider: ProcessCameraProvider? = null
     private var camera:         Camera? = null
-    private val analysisExecutor = Executors.newSingleThreadExecutor()
+    // Recreated in start(): stop() shuts this executor down, and a shutdown
+    // ExecutorService rejects any further setAnalyzer() submissions, so a
+    // restart (camera re-bind, lifecycle re-entry) needs a fresh instance.
+    private var analysisExecutor = Executors.newSingleThreadExecutor()
     private var currentFacing    = CameraSelector.LENS_FACING_FRONT
     private var lifecycleOwner:  LifecycleOwner? = null
 
     fun start(owner: LifecycleOwner, facing: Int = CameraSelector.LENS_FACING_FRONT) {
         lifecycleOwner = owner
         currentFacing  = facing
+        if (analysisExecutor.isShutdown) {
+            analysisExecutor = Executors.newSingleThreadExecutor()
+        }
         ProcessCameraProvider.getInstance(context).also { future ->
             future.addListener({
                 cameraProvider = future.get()

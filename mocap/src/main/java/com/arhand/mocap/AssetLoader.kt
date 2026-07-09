@@ -467,9 +467,14 @@ object AssetLoader {
 
         // The first `min(JOINT_COUNT, jointNodeIndices.size)` joint slots are mapped
         // in BoneRetargeter order. Each bone direction = normalize(tip_pos - base_pos).
-        for ((jointIdx, baseIdx, tipIdx) in BoneRetargeter.BONE_SEGMENTS) {
-            val basePos = jointPositions[jointNodeIndices.getOrElse(baseIdx) { -1 }]
-            val tipPos  = jointPositions[jointNodeIndices.getOrElse(tipIdx)  { -1 }]
+        // BONE_SEGMENTS' baseIdx/tipIdx are MediaPipe landmark indices (LM.*), not
+        // slot indices into jointNodeIndices — translate through LANDMARK_TO_JOINT_SLOT
+        // before indexing, or every finger past the thumb reads the wrong node.
+        for ((jointIdx, baseLmIdx, tipLmIdx) in BoneRetargeter.BONE_SEGMENTS) {
+            val baseSlot = BoneRetargeter.LANDMARK_TO_JOINT_SLOT[baseLmIdx]
+            val tipSlot  = BoneRetargeter.LANDMARK_TO_JOINT_SLOT[tipLmIdx]
+            val basePos = baseSlot?.let { jointPositions[jointNodeIndices.getOrElse(it) { -1 }] }
+            val tipPos  = tipSlot?.let  { jointPositions[jointNodeIndices.getOrElse(it) { -1 }] }
 
             dirs[jointIdx] = if (basePos != null && tipPos != null) {
                 val d = (tipPos - basePos)

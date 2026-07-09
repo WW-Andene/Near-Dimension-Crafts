@@ -185,12 +185,17 @@ class DepthAnythingSource(private val context: Context) {
         val env2 = env ?: return
         val shape = longArrayOf(1, 3, INPUT_H.toLong(), INPUT_W.toLong())
         val tensor = OnnxTensor.createTensor(env2, inputBuf, shape)
-        val result = sess.run(mapOf("image" to tensor))
-        tensor.close()
-
-        val output = result[0].value as? Array<*> ?: return
-        val rawFlat = flattenOutput(output) ?: return
-        result.close()
+        val rawFlat = try {
+            val result = sess.run(mapOf("image" to tensor))
+            try {
+                val output = result[0].value as? Array<*> ?: return
+                flattenOutput(output) ?: return
+            } finally {
+                result.close()
+            }
+        } finally {
+            tensor.close()
+        }
 
         // Bilinear downsample from 518×518 model output to 128×96 dense map (reuse scratch buf)
         val dense = denseScratchBuf

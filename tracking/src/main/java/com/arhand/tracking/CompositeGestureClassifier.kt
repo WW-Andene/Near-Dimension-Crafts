@@ -18,7 +18,10 @@ import com.arhand.tracking.HandSide
  * [CompositeGestureClassifier.classify] with the current [FullBodyFrame] to get the
  * composite result.
  *
- * Thread safety: stateless — safe to call from any thread.
+ * Thread safety: the `classify(FullBodyFrame, slot)` overload holds hysteresis
+ * state in a shared [GestureClassifier] instance and must be called from a single,
+ * consistent thread (the tracking pipeline's). The `classify(Gesture, FaceExpressions?)`
+ * overload is stateless.
  */
 
 /**
@@ -57,6 +60,11 @@ object CompositeGestureClassifier {
     /** Either-brow raise intensity threshold. */
     const val BROW_THRESH  = 0.65f
 
+    // Reused across calls: GestureClassifier's hysteresis debounce (HOLD_FRAMES /
+    // RECONFIRM_FRAMES) needs its hold-count state carried across frames. A fresh
+    // instance per call would never accumulate enough frames to confirm a gesture.
+    private val gestureClassifier = GestureClassifier()
+
     /**
      * Classify the composite gesture from the current [FullBodyFrame].
      *
@@ -70,7 +78,7 @@ object CompositeGestureClassifier {
     fun classify(frame: FullBodyFrame, slot: Int = 0): CompositeGesture? {
         val lms = if (slot == 0) frame.leftHand else frame.rightHand
         val gesture = lms?.let { landmarks ->
-            GestureClassifier().classify(landmarks, HandSide.UNKNOWN)
+            gestureClassifier.classify(landmarks, HandSide.UNKNOWN)
         } ?: return null
 
         // FACE-3: FullBodyFrame now carries derived FaceExpressions — use the

@@ -210,8 +210,9 @@ class BodyRetargeter {
             visCount++
 
             if (vis >= VISIBILITY_THRESHOLD) {
-                // Good visibility — compute rotation normally
-                graceRemaining[seg.joint] = 0
+                // Good visibility — compute rotation normally and replenish the
+                // grace period so a future visibility dip holds GRACE_FRAMES frames.
+                graceRemaining[seg.joint] = GRACE_FRAMES
 
                 val baseVec  = lms.toVec3(seg.baseIdx)
                 val tipVec   = lms.toVec3(seg.tipIdx)

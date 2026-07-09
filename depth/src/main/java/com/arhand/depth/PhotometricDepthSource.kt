@@ -227,7 +227,7 @@ class PhotometricDepthSource(private val context: Context) : DepthSource {
         }
 
         // Normalise depth to [0,1] then scale to metres
-        var dMin = Float.MAX_VALUE; var dMax = Float.MIN_VALUE
+        var dMin = Float.MAX_VALUE; var dMax = -Float.MAX_VALUE
         for (v in depth) { if (v < dMin) dMin = v; if (v > dMax) dMax = v }
         val dRange = maxOf(dMax - dMin, 1e-6f)
 

@@ -1001,6 +1001,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         uiState.update { it.copy(scanActive = false) }
         scanState.value = scanState.value.copy(freeformActive = false, freeformStatus = null)
+        router.isFreeformActive = false
+        router.isScanActive     = false
     }
 
     /**
@@ -1083,6 +1085,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
                 freeformScanner.reset()
                 uiState.update { it.copy(scanActive = false) }
+                router.isFreeformActive = false
+                router.isScanActive     = false
 
             } catch (e: Exception) {
                 android.util.Log.e("AppViewModel", "processFreeformScan failed", e)
@@ -1093,6 +1097,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 scanState.value = scanState.value.copy(freeformActive = false)
                 uiState.update { it.copy(scanActive = false) }
+                router.isFreeformActive = false
+                router.isScanActive     = false
             }
         }
     }

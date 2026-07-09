@@ -62,7 +62,10 @@ class MotionRecorder(
         // These are the rest-pose distances between joint origins for a normalised hand.
         // They only affect skeleton display in the BVH viewer — animation data is
         // rotation-only so the values are cosmetic.
-        private val BONE_LENGTH = mapOf(
+        // Not private: reused by GltfAnimationExporter to give exported joint nodes a
+        // non-degenerate rest-pose translation (see BoneRetargeter.symmetricBindPose
+        // for the matching direction vectors).
+        val BONE_LENGTH = mapOf(
             BoneRetargeter.JOINT_WRIST      to 0.00f,   // root — offset from scene origin
             BoneRetargeter.JOINT_THUMB_CMC  to 0.045f,
             BoneRetargeter.JOINT_THUMB_MCP  to 0.030f,

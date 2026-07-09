@@ -258,10 +258,12 @@ class Scanner {
 
         val pose = ScanPoses.ALL[poseIndex]
         val quality = QualityEngine.evaluate(lms, claheContrast, prevLms)
-        prevLms = lms
 
-        // D5: accumulate joint angles every frame (visibility-gated inside accumulator)
+        // D5: accumulate joint angles every frame (visibility-gated inside accumulator).
+        // Must run before prevLms is overwritten below, or this always compares a frame
+        // against itself and IMP-R2 velocity gating never rejects anything.
         romAccumulator.update(lms, prevLms)
+        prevLms = lms
 
         // BODY-5 — Body stability gate.
         // When body landmarks are provided, gate acceptance on wrist position stability.

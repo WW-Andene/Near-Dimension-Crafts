@@ -30,6 +30,16 @@ import java.nio.FloatBuffer
  */
 class SkinnedMeshRenderer {
 
+    companion object {
+        // Upper bound on skin-joint slots the palette/shader can hold. Hand-only
+        // puppets only use slots 0..JOINT_COUNT-1 (16); BODY_CHARACTER assets add
+        // body joints at their raw glTF node index (>= 21 per AssetSlot's own
+        // threshold), sharing the same palette/uniform array — so this must cover
+        // both, not just the hand's 16 slots, or body node indices alias onto
+        // hand slots and corrupt both.
+        const val MAX_SKIN_JOINTS = 64
+    }
+
     // ─── GL handles ───────────────────────────────────────────────────────────
     private var skinnedProgram = 0
     private var ghostProgram   = 0     // semi-transparent Phong for ghost overlay
@@ -54,7 +64,7 @@ class SkinnedMeshRenderer {
     private var vertexCount = 0
 
     // ─── Pose state (written every tracking frame) ────────────────────────────
-    @Volatile private var bonePalette = FloatArray(BoneRetargeter.JOINT_COUNT * 16)
+    @Volatile private var bonePalette = FloatArray(MAX_SKIN_JOINTS * 16)
     @Volatile private var poseDirty   = false
 
     // Cached inverse bind matrices for the loaded asset (parallel to bone palette)
@@ -115,7 +125,7 @@ class SkinnedMeshRenderer {
      * Computes the bone palette = jointMatrix × inverseBindMatrix for each joint.
      */
     fun updatePose(result: RetargetResult) {
-        val palette = FloatArray(BoneRetargeter.JOINT_COUNT * 16)
+        val palette = FloatArray(MAX_SKIN_JOINTS * 16)
 
         for (jointIdx in 0 until BoneRetargeter.JOINT_COUNT) {
             val rot = result.jointRotations[jointIdx] ?: Quaternion.IDENTITY
@@ -162,7 +172,11 @@ class SkinnedMeshRenderer {
 
         for ((bodyJoint, nodeIdx) in jointMap) {
             val rot = bodyResult.joints[bodyJoint] ?: continue
-            if (nodeIdx < 0 || nodeIdx >= asset.jointNodeIndices.size) continue
+            // nodeIdx is the body joint's raw glTF skin-joint index, which for a
+            // BODY_CHARACTER asset lands well past the hand's 16 slots — do not
+            // clamp it into [0, JOINT_COUNT-1] or distinct body joints alias onto
+            // the same slot and stomp each other (and the hand's own matrices).
+            if (nodeIdx < 0 || nodeIdx >= asset.jointNodeIndices.size || nodeIdx >= MAX_SKIN_JOINTS) continue
 
             val jointMat = rot.toMatrix()
 
@@ -176,9 +190,8 @@ class SkinnedMeshRenderer {
             val skinMat = FloatArray(16)
             android.opengl.Matrix.multiplyMM(skinMat, 0, jointMat, 0, ibm, 0)
 
-            // Write into palette at the correct slot
-            val paletteIdx = nodeIdx.coerceIn(0, BoneRetargeter.JOINT_COUNT - 1)
-            skinMat.copyInto(palette, paletteIdx * 16)
+            // Write into palette at its own slot — one slot per distinct node index.
+            skinMat.copyInto(palette, nodeIdx * 16)
         }
 
         bonePalette = palette
@@ -232,11 +245,12 @@ class SkinnedMeshRenderer {
         GLES30.glUniformMatrix4fv(skinnedLoc["uView"]!!,       1, false, view,  0)
         GLES30.glUniformMatrix4fv(skinnedLoc["uProjection"]!!, 1, false, proj,  0)
 
-        // Bone palette — 16 matrices × 16 floats = 256 floats
+        // Bone palette — MAX_SKIN_JOINTS matrices × 16 floats, covering both the
+        // 16 hand joint slots and any body joint slots written by updateBodyPose.
         val palette = bonePalette
         GLES30.glUniformMatrix4fv(
             skinnedLoc["uBonePalette"]!!,
-            BoneRetargeter.JOINT_COUNT,
+            MAX_SKIN_JOINTS,
             false,
             palette,
             0
@@ -418,8 +432,8 @@ class SkinnedMeshRenderer {
      *   aMorphDelta0..7 — per-vertex morph delta positions (vec3 each, GAP-2)
      *
      * Uniforms:
-     *   uBonePalette[JOINT_COUNT] — skinMatrix per joint = jointMat × inverseBindMat
-     *   uMorphWeights[8]          — blend weight per morph target (0–1)
+     *   uBonePalette[MAX_SKIN_JOINTS] — skinMatrix per joint = jointMat × inverseBindMat
+     *   uMorphWeights[8]              — blend weight per morph target (0–1)
      *
      * The morphed-and-skinned position is passed to the Phong fragment shader.
      */
@@ -446,7 +460,7 @@ class SkinnedMeshRenderer {
         uniform mat4 uView;
         uniform mat4 uProjection;
         uniform mat3 uNormalMatrix;
-        uniform mat4 uBonePalette[${BoneRetargeter.JOINT_COUNT}];
+        uniform mat4 uBonePalette[$MAX_SKIN_JOINTS];
 
         // GAP-2 — morph weights uploaded each frame by applyMorphWeights()
         uniform float uMorphWeights[8];
