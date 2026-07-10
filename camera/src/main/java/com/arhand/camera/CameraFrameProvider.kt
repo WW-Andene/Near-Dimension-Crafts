@@ -8,7 +8,15 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 
 /**
- * Converts CameraX ImageProxy (YUV_420_888) to Bitmap and emits via SharedFlow.
+ * Converts CameraX ImageProxy (RGBA_8888 — see [CameraController]'s
+ * `setOutputImageFormat(OUTPUT_IMAGE_FORMAT_RGBA_8888)`) to Bitmap and emits via SharedFlow.
+ *
+ * CameraX does the YUV -> RGBA conversion itself via its own internal (hardware-
+ * accelerated) path before the analyzer ever sees the frame, so this class no longer
+ * does a ~300K-iteration manual YUV math loop on every single camera frame — the common
+ * case is one bulk [Bitmap.copyPixelsFromBuffer] call. That YUV loop ran unconditionally
+ * on every frame regardless of any inference throttling, making it one of the largest
+ * always-on per-frame CPU costs in the whole tracking pipeline.
  *
  * Uses proxy.imageInfo.rotationDegrees for per-frame rotation metadata supplied
  * by CameraX — no manual sensor-orientation + display-rotation calculation needed.
@@ -37,7 +45,7 @@ class CameraFrameProvider {
     private val outputBitmapPool = arrayOfNulls<Bitmap>(POOL_SIZE)
     private var lastWidth  = 0
     private var lastHeight = 0
-    private var yuvPoolIndex = 0
+    private var bitmapPoolIndex = 0
 
     private val rotatedBitmapPool = arrayOfNulls<Bitmap>(POOL_SIZE)
     private val rotatedCanvasPool = arrayOfNulls<Canvas>(POOL_SIZE)
@@ -47,7 +55,7 @@ class CameraFrameProvider {
         try {
             val image  = proxy.image ?: return
             val rotDeg = proxy.imageInfo.rotationDegrees
-            val bitmap = yuv420ToBitmap(image)
+            val bitmap = rgbaToBitmap(image)
             val toEmit = if (rotDeg != 0) {
                 val (rw, rh) = if (rotDeg == 90 || rotDeg == 270)
                     bitmap.height to bitmap.width else bitmap.width to bitmap.height
@@ -74,51 +82,50 @@ class CameraFrameProvider {
         }
     }
 
-    private fun yuv420ToBitmap(image: android.media.Image): Bitmap {
+    private fun rgbaToBitmap(image: android.media.Image): Bitmap {
         val width  = image.width
         val height = image.height
 
-        if (width != lastWidth || height != lastHeight || argbPixelsPool[0] == null) {
+        if (width != lastWidth || height != lastHeight || outputBitmapPool[0] == null) {
             for (i in 0 until POOL_SIZE) {
-                argbPixelsPool[i]   = IntArray(width * height)
                 outputBitmapPool[i] = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             }
-            lastWidth    = width
-            lastHeight   = height
+            lastWidth  = width
+            lastHeight = height
         }
-        yuvPoolIndex = (yuvPoolIndex + 1) % POOL_SIZE
-        val pixels = argbPixelsPool[yuvPoolIndex]!!
-        val bitmap = outputBitmapPool[yuvPoolIndex]!!
+        bitmapPoolIndex = (bitmapPoolIndex + 1) % POOL_SIZE
+        val bitmap = outputBitmapPool[bitmapPoolIndex]!!
 
-        val yPlane = image.planes[0]
-        val uPlane = image.planes[1]
-        val vPlane = image.planes[2]
+        val plane       = image.planes[0]
+        val buffer      = plane.buffer
+        val rowStride   = plane.rowStride
+        val pixelStride = plane.pixelStride
+        buffer.rewind()
 
-        val yBuf          = yPlane.buffer
-        val uBuf          = uPlane.buffer
-        val vBuf          = vPlane.buffer
-        val yRowStride    = yPlane.rowStride
-        val uvRowStride   = uPlane.rowStride
-        val uvPixelStride = uPlane.pixelStride
-
-        for (row in 0 until height) {
-            val uvRow = row shr 1
-            for (col in 0 until width) {
-                val uvCol = col shr 1
-                val yPos  = row * yRowStride + col
-                val y     = (yBuf.get(yPos).toInt() and 0xFF) - 16
-                val uvPos = uvRow * uvRowStride + uvCol * uvPixelStride
-                val u     = (uBuf.get(uvPos).toInt() and 0xFF) - 128
-                val v     = (vBuf.get(uvPos).toInt() and 0xFF) - 128
-                val yScaled = 298 * y + 128
-                val r = minOf(255, maxOf(0, (yScaled + 409 * v)           shr 8))
-                val g = minOf(255, maxOf(0, (yScaled - 100 * u - 208 * v) shr 8))
-                val b = minOf(255, maxOf(0, (yScaled + 516 * u)           shr 8))
-                pixels[row * width + col] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+        if (rowStride == width * pixelStride) {
+            // Tightly packed — RGBA_8888's byte layout (R,G,B,A per pixel) matches
+            // Bitmap.Config.ARGB_8888's in-memory byte layout exactly, so this is a
+            // single bulk copy instead of a per-pixel loop.
+            bitmap.copyPixelsFromBuffer(buffer)
+        } else {
+            // Row padding present (stride > width*4, seen on some devices/resolutions) —
+            // copy row by row. Still just a byte reorder, no YUV chroma math.
+            val pixels = argbPixelsPool[bitmapPoolIndex] ?: IntArray(width * height).also {
+                argbPixelsPool[bitmapPoolIndex] = it
             }
+            for (row in 0 until height) {
+                var pos = row * rowStride
+                for (col in 0 until width) {
+                    val r = buffer.get(pos).toInt()     and 0xFF
+                    val g = buffer.get(pos + 1).toInt() and 0xFF
+                    val b = buffer.get(pos + 2).toInt() and 0xFF
+                    val a = buffer.get(pos + 3).toInt() and 0xFF
+                    pixels[row * width + col] = (a shl 24) or (r shl 16) or (g shl 8) or b
+                    pos += pixelStride
+                }
+            }
+            bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
         }
-
-        bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
         return bitmap
     }
 }

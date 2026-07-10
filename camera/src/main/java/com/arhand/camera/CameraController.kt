@@ -65,6 +65,10 @@ class CameraController(
         val analysis = ImageAnalysis.Builder()
             .setTargetResolution(Size(TARGET_WIDTH, TARGET_HEIGHT))
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+            // Have CameraX convert YUV -> RGBA itself (its internal, hardware-accelerated
+            // path) instead of handing us raw YUV_420_888 to convert by hand every frame —
+            // see CameraFrameProvider.rgbaToBitmap for the other half of this.
+            .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
             .build()
         analysis.setAnalyzer(analysisExecutor, frameProvider::onImageProxy)
 
