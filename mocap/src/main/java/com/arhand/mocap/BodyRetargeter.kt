@@ -19,184 +19,187 @@ import com.arhand.util.Vec3
  * the result map entirely. This prevents leg joints snapping to garbage positions
  * when only the upper body is in frame.
  *
+ * Pure function, no internal mutable state — [retarget] takes the previous grace/EMA
+ * state explicitly ([BodyRetargeterState]) and returns the updated state alongside the
+ * result, instead of holding it as instance fields. This class previously held that state
+ * internally, which meant two callers sharing one instance would corrupt each other's
+ * grace-period/EMA history — exactly the shape of `AppViewModel`'s two current call sites
+ * (the live `SpatialFrameProducer` pipeline, and the dormant `ensureFullBodyCollector`,
+ * both retargeting from the *same* `bodyRetargeter` instance). Each caller now owns and
+ * threads its own state, so that can't happen even if both run.
+ *
  * Output:
  * ```kotlin
- * val result = bodyRetargeter.retarget(poseLandmarks)
- * // result.joints:     Map<BodyJoint, Quaternion> — keyed by BodyJoint enum
- * // result.wristLeft:  Vec3  — left wrist world position (for BODY-3 wrist anchor)
- * // result.wristRight: Vec3  — right wrist world position
- * // result.confidence: Float — mean visibility across all driven landmarks
+ * var state = BodyRetargeterState.INITIAL
+ * val (newState, result) = BodyRetargeter.retarget(poseLandmarks, state)
+ * state = newState
+ * // result?.joints:     Map<BodyJoint, Quaternion> — keyed by BodyJoint enum
+ * // result?.wristLeft:  Vec3  — left wrist world position (for BODY-3 wrist anchor)
+ * // result?.wristRight: Vec3  — right wrist world position
+ * // result?.confidence: Float — mean visibility across all driven landmarks
  * ```
- *
- * Thread safety: not thread-safe. Call from a single tracking coroutine.
  */
-class BodyRetargeter {
+object BodyRetargeter {
 
-    companion object {
-        /** BODY-4 — Visibility below this → joint enters grace period. */
-        const val VISIBILITY_THRESHOLD = 0.5f
+    /** BODY-4 — Visibility below this → joint enters grace period. */
+    const val VISIBILITY_THRESHOLD = 0.5f
 
-        /** BODY-4 — Hold last confident rotation for this many frames before dropping. */
-        const val GRACE_FRAMES = 15
-
-        /**
-         * Body bone segment definitions.
-         *
-         * Each entry: (BodyJoint, baseLandmarkIdx, tipLandmarkIdx, bindDir).
-         *
-         * [bindDir] is the direction the bone points in a standard T-pose:
-         *   - Spine chain:    +Y (upward)
-         *   - Arms:           ±X (outward horizontally)
-         *   - Legs:           -Y (downward)
-         *
-         * The shortest-arc quaternion rotates [bindDir] to the live direction.
-         * Visibility gating uses the min(base, tip) visibility of the two driving landmarks.
-         */
-        private val BONE_SEGMENTS: List<BoneSegment> = listOf(
-            // ── Spine chain ─────────────────────────────────────────────────
-            BoneSegment(
-                joint   = BodyJoint.HIPS,
-                baseIdx = PL.LEFT_HIP,
-                tipIdx  = PL.RIGHT_HIP,
-                bindDir = Vec3(1f, 0f, 0f)      // hip-to-hip → lateral axis
-            ),
-            BoneSegment(
-                joint   = BodyJoint.SPINE,
-                baseIdx = PL.LEFT_HIP,
-                tipIdx  = PL.LEFT_SHOULDER,
-                bindDir = Vec3(0f, 1f, 0f)      // hip centre → shoulder centre, upward
-            ),
-            BoneSegment(
-                joint   = BodyJoint.CHEST,
-                baseIdx = PL.RIGHT_HIP,
-                tipIdx  = PL.RIGHT_SHOULDER,
-                bindDir = Vec3(0f, 1f, 0f)
-            ),
-            BoneSegment(
-                joint   = BodyJoint.NECK,
-                baseIdx = PL.LEFT_SHOULDER,
-                tipIdx  = PL.RIGHT_SHOULDER,
-                bindDir = Vec3(1f, 0f, 0f)      // shoulder-to-shoulder → lateral
-            ),
-            BoneSegment(
-                joint   = BodyJoint.HEAD,
-                baseIdx = PL.LEFT_SHOULDER,
-                tipIdx  = PL.NOSE,
-                bindDir = Vec3(0f, 1f, 0f)      // shoulders → nose, upward
-            ),
-
-            // ── Left arm ───────────────────────────────────────────────────
-            BoneSegment(
-                joint   = BodyJoint.LEFT_UPPER_ARM,
-                baseIdx = PL.LEFT_SHOULDER,
-                tipIdx  = PL.LEFT_ELBOW,
-                bindDir = Vec3(-1f, 0f, 0f)     // T-pose: shoulder → elbow, leftward
-            ),
-            BoneSegment(
-                joint   = BodyJoint.LEFT_LOWER_ARM,
-                baseIdx = PL.LEFT_ELBOW,
-                tipIdx  = PL.LEFT_WRIST,
-                bindDir = Vec3(-1f, 0f, 0f)
-            ),
-
-            // ── Right arm ──────────────────────────────────────────────────
-            BoneSegment(
-                joint   = BodyJoint.RIGHT_UPPER_ARM,
-                baseIdx = PL.RIGHT_SHOULDER,
-                tipIdx  = PL.RIGHT_ELBOW,
-                bindDir = Vec3(1f, 0f, 0f)      // T-pose: shoulder → elbow, rightward
-            ),
-            BoneSegment(
-                joint   = BodyJoint.RIGHT_LOWER_ARM,
-                baseIdx = PL.RIGHT_ELBOW,
-                tipIdx  = PL.RIGHT_WRIST,
-                bindDir = Vec3(1f, 0f, 0f)
-            ),
-
-            // ── Left leg ───────────────────────────────────────────────────
-            BoneSegment(
-                joint   = BodyJoint.LEFT_UPPER_LEG,
-                baseIdx = PL.LEFT_HIP,
-                tipIdx  = PL.LEFT_KNEE,
-                bindDir = Vec3(0f, -1f, 0f)     // T-pose: hip → knee, downward
-            ),
-            BoneSegment(
-                joint   = BodyJoint.LEFT_LOWER_LEG,
-                baseIdx = PL.LEFT_KNEE,
-                tipIdx  = PL.LEFT_ANKLE,
-                bindDir = Vec3(0f, -1f, 0f)
-            ),
-            BoneSegment(
-                joint   = BodyJoint.LEFT_FOOT,
-                baseIdx = PL.LEFT_ANKLE,
-                tipIdx  = PL.LEFT_FOOT_INDEX,
-                bindDir = Vec3(0f, 0f, 1f)      // T-pose: ankle → toe, forward
-            ),
-
-            // ── Right leg ──────────────────────────────────────────────────
-            BoneSegment(
-                joint   = BodyJoint.RIGHT_UPPER_LEG,
-                baseIdx = PL.RIGHT_HIP,
-                tipIdx  = PL.RIGHT_KNEE,
-                bindDir = Vec3(0f, -1f, 0f)
-            ),
-            BoneSegment(
-                joint   = BodyJoint.RIGHT_LOWER_LEG,
-                baseIdx = PL.RIGHT_KNEE,
-                tipIdx  = PL.RIGHT_ANKLE,
-                bindDir = Vec3(0f, -1f, 0f)
-            ),
-            BoneSegment(
-                joint   = BodyJoint.RIGHT_FOOT,
-                baseIdx = PL.RIGHT_ANKLE,
-                tipIdx  = PL.RIGHT_FOOT_INDEX,
-                bindDir = Vec3(0f, 0f, 1f)
-            )
-        )
-
-        private data class BoneSegment(
-            val joint:   BodyJoint,
-            val baseIdx: Int,
-            val tipIdx:  Int,
-            val bindDir: Vec3
-        )
-    }
-
-    // ─── BODY-4: Per-joint grace period state ─────────────────────────────────
-
-    /** Last confident rotation per joint. Held during grace period. */
-    private val lastGoodRotation = HashMap<BodyJoint, Quaternion>()
-
-    /** Remaining grace frames per joint. 0 = not in grace period. */
-    private val graceRemaining   = HashMap<BodyJoint, Int>()
-
-    // ─── Quaternion EMA per body joint ────────────────────────────────────────
+    /** BODY-4 — Hold last confident rotation for this many frames before dropping. */
+    const val GRACE_FRAMES = 15
 
     /**
-     * Speed-adaptive quaternion EMA per body joint — same approach as
-     * [QuaternionEmaFilter] for hands, tuned for slower body motion.
+     * Body bone segment definitions.
+     *
+     * Each entry: (BodyJoint, baseLandmarkIdx, tipLandmarkIdx, bindDir).
+     *
+     * [bindDir] is the direction the bone points in a standard T-pose:
+     *   - Spine chain:    +Y (upward)
+     *   - Arms:           ±X (outward horizontally)
+     *   - Legs:           -Y (downward)
+     *
+     * The shortest-arc quaternion rotates [bindDir] to the live direction.
+     * Visibility gating uses the min(base, tip) visibility of the two driving landmarks.
      */
-    private val emaAlphaMin   = 0.15f   // more smoothing than hands (body is slower)
-    private val emaAlphaMax   = 1.00f
-    private val emaSpeedThresh = 0.5f   // rad/frame threshold to fully open
-    private val emaPrev        = HashMap<BodyJoint, Quaternion>()
+    private val BONE_SEGMENTS: List<BoneSegment> = listOf(
+        // ── Spine chain ─────────────────────────────────────────────────
+        BoneSegment(
+            joint   = BodyJoint.HIPS,
+            baseIdx = PL.LEFT_HIP,
+            tipIdx  = PL.RIGHT_HIP,
+            bindDir = Vec3(1f, 0f, 0f)      // hip-to-hip → lateral axis
+        ),
+        BoneSegment(
+            joint   = BodyJoint.SPINE,
+            baseIdx = PL.LEFT_HIP,
+            tipIdx  = PL.LEFT_SHOULDER,
+            bindDir = Vec3(0f, 1f, 0f)      // hip centre → shoulder centre, upward
+        ),
+        BoneSegment(
+            joint   = BodyJoint.CHEST,
+            baseIdx = PL.RIGHT_HIP,
+            tipIdx  = PL.RIGHT_SHOULDER,
+            bindDir = Vec3(0f, 1f, 0f)
+        ),
+        BoneSegment(
+            joint   = BodyJoint.NECK,
+            baseIdx = PL.LEFT_SHOULDER,
+            tipIdx  = PL.RIGHT_SHOULDER,
+            bindDir = Vec3(1f, 0f, 0f)      // shoulder-to-shoulder → lateral
+        ),
+        BoneSegment(
+            joint   = BodyJoint.HEAD,
+            baseIdx = PL.LEFT_SHOULDER,
+            tipIdx  = PL.NOSE,
+            bindDir = Vec3(0f, 1f, 0f)      // shoulders → nose, upward
+        ),
+
+        // ── Left arm ───────────────────────────────────────────────────
+        BoneSegment(
+            joint   = BodyJoint.LEFT_UPPER_ARM,
+            baseIdx = PL.LEFT_SHOULDER,
+            tipIdx  = PL.LEFT_ELBOW,
+            bindDir = Vec3(-1f, 0f, 0f)     // T-pose: shoulder → elbow, leftward
+        ),
+        BoneSegment(
+            joint   = BodyJoint.LEFT_LOWER_ARM,
+            baseIdx = PL.LEFT_ELBOW,
+            tipIdx  = PL.LEFT_WRIST,
+            bindDir = Vec3(-1f, 0f, 0f)
+        ),
+
+        // ── Right arm ──────────────────────────────────────────────────
+        BoneSegment(
+            joint   = BodyJoint.RIGHT_UPPER_ARM,
+            baseIdx = PL.RIGHT_SHOULDER,
+            tipIdx  = PL.RIGHT_ELBOW,
+            bindDir = Vec3(1f, 0f, 0f)      // T-pose: shoulder → elbow, rightward
+        ),
+        BoneSegment(
+            joint   = BodyJoint.RIGHT_LOWER_ARM,
+            baseIdx = PL.RIGHT_ELBOW,
+            tipIdx  = PL.RIGHT_WRIST,
+            bindDir = Vec3(1f, 0f, 0f)
+        ),
+
+        // ── Left leg ───────────────────────────────────────────────────
+        BoneSegment(
+            joint   = BodyJoint.LEFT_UPPER_LEG,
+            baseIdx = PL.LEFT_HIP,
+            tipIdx  = PL.LEFT_KNEE,
+            bindDir = Vec3(0f, -1f, 0f)     // T-pose: hip → knee, downward
+        ),
+        BoneSegment(
+            joint   = BodyJoint.LEFT_LOWER_LEG,
+            baseIdx = PL.LEFT_KNEE,
+            tipIdx  = PL.LEFT_ANKLE,
+            bindDir = Vec3(0f, -1f, 0f)
+        ),
+        BoneSegment(
+            joint   = BodyJoint.LEFT_FOOT,
+            baseIdx = PL.LEFT_ANKLE,
+            tipIdx  = PL.LEFT_FOOT_INDEX,
+            bindDir = Vec3(0f, 0f, 1f)      // T-pose: ankle → toe, forward
+        ),
+
+        // ── Right leg ──────────────────────────────────────────────────
+        BoneSegment(
+            joint   = BodyJoint.RIGHT_UPPER_LEG,
+            baseIdx = PL.RIGHT_HIP,
+            tipIdx  = PL.RIGHT_KNEE,
+            bindDir = Vec3(0f, -1f, 0f)
+        ),
+        BoneSegment(
+            joint   = BodyJoint.RIGHT_LOWER_LEG,
+            baseIdx = PL.RIGHT_KNEE,
+            tipIdx  = PL.RIGHT_ANKLE,
+            bindDir = Vec3(0f, -1f, 0f)
+        ),
+        BoneSegment(
+            joint   = BodyJoint.RIGHT_FOOT,
+            baseIdx = PL.RIGHT_ANKLE,
+            tipIdx  = PL.RIGHT_FOOT_INDEX,
+            bindDir = Vec3(0f, 0f, 1f)
+        )
+    )
+
+    private data class BoneSegment(
+        val joint:   BodyJoint,
+        val baseIdx: Int,
+        val tipIdx:  Int,
+        val bindDir: Vec3
+    )
+
+    // ─── Quaternion EMA tuning ────────────────────────────────────────────────
+    // Speed-adaptive quaternion EMA per body joint — same approach as
+    // [QuaternionEmaFilter] for hands, tuned for slower body motion.
+    private const val EMA_ALPHA_MIN    = 0.15f   // more smoothing than hands (body is slower)
+    private const val EMA_ALPHA_MAX    = 1.00f
+    private const val EMA_SPEED_THRESH = 0.5f    // rad/frame threshold to fully open
 
     // ─── API ─────────────────────────────────────────────────────────────────
 
     /**
      * Retarget a single frame of [PoseLandmarks] to [BodyRetargetResult].
      *
-     * Returns null if [lms] has fewer than [PL.COUNT] landmarks.
+     * @param prevState Grace-period/EMA state from the caller's previous call (its own
+     *   copy — see the class doc on why this must not be shared between callers).
+     *   Pass [BodyRetargeterState.INITIAL] for the first call or after a reset.
+     * @return The updated state to pass into the next call, paired with the result
+     *   (null if [lms] has fewer than [PL.COUNT] landmarks — state is unchanged in that case).
      *
      * BODY-4: joints whose visibility is below [VISIBILITY_THRESHOLD] enter a grace
-     * period — [lastGoodRotation] is used and [graceRemaining] decremented. Once
-     * grace expires the joint is omitted from [BodyRetargetResult.joints] entirely.
+     * period — the held last-good rotation is used and the grace counter decremented.
+     * Once grace expires the joint is omitted from [BodyRetargetResult.joints] entirely.
      * Joints above threshold reset the grace counter.
      */
-    fun retarget(lms: PoseLandmarks): BodyRetargetResult? {
-        if (lms.size < PL.COUNT) return null
+    fun retarget(lms: PoseLandmarks, prevState: BodyRetargeterState = BodyRetargeterState.INITIAL):
+        Pair<BodyRetargeterState, BodyRetargetResult?> {
+        if (lms.size < PL.COUNT) return prevState to null
 
-        val joints    = HashMap<BodyJoint, Quaternion>(BONE_SEGMENTS.size)
+        val joints          = HashMap<BodyJoint, Quaternion>(BONE_SEGMENTS.size)
+        val lastGoodRotation = HashMap(prevState.lastGoodRotation)
+        val graceRemaining   = HashMap(prevState.graceRemaining)
+        val emaPrev          = HashMap(prevState.emaPrev)
         var visSum    = 0f
         var visCount  = 0
 
@@ -218,7 +221,7 @@ class BodyRetargeter {
                 val tipVec   = lms.toVec3(seg.tipIdx)
                 val liveDir  = (tipVec - baseVec).normalized()
                 val rawRot   = shortestArcQuaternion(seg.bindDir, liveDir)
-                val smoothed = applyEma(seg.joint, rawRot)
+                val smoothed = applyEma(seg.joint, rawRot, emaPrev)
 
                 joints[seg.joint]                 = smoothed
                 lastGoodRotation[seg.joint]       = smoothed
@@ -242,31 +245,26 @@ class BodyRetargeter {
         val wristRight = lms.toVec3(PL.RIGHT_WRIST)
         val confidence = if (visCount > 0) visSum / visCount else 0f
 
-        return BodyRetargetResult(
+        val newState = BodyRetargeterState(lastGoodRotation, graceRemaining, emaPrev)
+        val result = BodyRetargetResult(
             joints      = joints,
             wristLeft   = wristLeft,
             wristRight  = wristRight,
             confidence  = confidence
         )
-    }
-
-    /** Reset all grace period state and EMA history. Call on body tracking disable. */
-    fun reset() {
-        lastGoodRotation.clear()
-        graceRemaining.clear()
-        emaPrev.clear()
+        return newState to result
     }
 
     // ─── Per-joint EMA ────────────────────────────────────────────────────────
 
-    private fun applyEma(joint: BodyJoint, q: Quaternion): Quaternion {
+    private fun applyEma(joint: BodyJoint, q: Quaternion, emaPrev: MutableMap<BodyJoint, Quaternion>): Quaternion {
         val p = emaPrev[joint] ?: run { emaPrev[joint] = q; return q }
 
         val dot = (p.x * q.x + p.y * q.y + p.z * q.z + p.w * q.w)
             .let { if (it < 0f) -it else it }.coerceIn(0f, 1f)
         val angularSpeed = 2f * kotlin.math.acos(dot)
-        val t     = (angularSpeed / emaSpeedThresh).coerceIn(0f, 1f)
-        val alpha = emaAlphaMin + (emaAlphaMax - emaAlphaMin) * t
+        val t     = (angularSpeed / EMA_SPEED_THRESH).coerceIn(0f, 1f)
+        val alpha = EMA_ALPHA_MIN + (EMA_ALPHA_MAX - EMA_ALPHA_MIN) * t
 
         val blended = p.slerp(q, alpha)
         emaPrev[joint] = blended
@@ -332,3 +330,20 @@ data class BodyRetargetResult(
     /** Mean landmark visibility across all driven joints (0–1). */
     val confidence:  Float
 )
+
+/**
+ * Grace-period/EMA state threaded explicitly through [BodyRetargeter.retarget] — see the
+ * class doc for why this is a parameter/return value rather than internal mutable fields.
+ * Each caller owns one of these (e.g. a `private var` beside its own `retarget()` call site)
+ * and passes the value back in on the next call.
+ */
+data class BodyRetargeterState(
+    /** Last confident rotation per joint. Held during grace period. */
+    val lastGoodRotation: Map<BodyJoint, Quaternion> = emptyMap(),
+    /** Remaining grace frames per joint. 0/absent = not in grace period. */
+    val graceRemaining:   Map<BodyJoint, Int>         = emptyMap(),
+    /** Previous EMA-blended rotation per joint. */
+    val emaPrev:          Map<BodyJoint, Quaternion>  = emptyMap()
+) {
+    companion object { val INITIAL = BodyRetargeterState() }
+}

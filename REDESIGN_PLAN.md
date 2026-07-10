@@ -235,10 +235,18 @@ later. Bigger, more invasive, sequenced after Phases 0-7 land and are verified g
    `bodyPipeline`, and `CameraFrameProvider.frames` inaccessible outside `SpatialFrameProducer`
    (Kotlin `internal`/module boundaries, not just convention) so the double-writer bugs (§4.4,
    §5.3) become compile errors if reintroduced, not just a rule someone has to remember.
-4. **Make retargeters pure.** `BoneRetargeter.retarget()`/`BodyRetargeter.retarget()` take
-   previous-state explicitly and return `(newState, result)` instead of mutating internal EMA/
-   grace-period fields — removes the possibility of two callers silently sharing or corrupting
-   one stateful instance.
+4. **Make retargeters pure** — DONE, scope corrected during implementation. `BoneRetargeter`
+   turned out to already be pure (no internal mutable fields at all — verified by reading it;
+   its `bindPose` is a read-only constructor `val`), so only `BodyRetargeter` needed the change.
+   `BodyRetargeter` is now an `object` (no reason to instantiate a genuinely stateless type);
+   `retarget()` takes a `BodyRetargeterState` (grace-period + EMA history) explicitly and returns
+   `(newState, result)` instead of mutating three internal `HashMap` fields. This was not a
+   hypothetical risk: `AppViewModel` has *two* call sites retargeting from `bodyPipeline`'s output
+   through the same `BodyRetargeter` — the live `SpatialFrameProducer` pipeline and the dormant
+   `ensureFullBodyCollector` (one of the blocked §10.1 items). Before this, activating that
+   blocked feature would have silently corrupted the live pipeline's grace-period/EMA state the
+   moment both ran. Each caller now holds its own `BodyRetargeterState` field, so that's no
+   longer possible regardless of what's decided about §10.1.
 5. **Decompose `AppViewModel` and `FusedDepthSource`** into smaller, single-responsibility
    coordinators once 1-4 reduce how much cross-cutting state they need to hold directly.
 

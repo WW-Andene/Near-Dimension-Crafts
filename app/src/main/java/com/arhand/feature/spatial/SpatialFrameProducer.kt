@@ -11,6 +11,7 @@ import com.arhand.depth.SpatialLayer
 import com.arhand.mocap.BiomechanicalConstraintFilter
 import com.arhand.mocap.BoneRetargeter
 import com.arhand.mocap.BodyRetargeter
+import com.arhand.mocap.BodyRetargeterState
 import com.arhand.mocap.QuaternionEmaFilter
 import com.arhand.tracking.BodyPipeline
 import com.arhand.scanner.CLAHEAnalyzer
@@ -154,7 +155,9 @@ class SpatialFrameProducer(
         scope.launch {
             bodyPipeline.processed.collect { lms ->
                 if (lms != null && bodyEnabled) {
-                    _latestBodyResult.value = bodyRetargeter.retarget(lms)
+                    val (newState, result) = bodyRetargeter.retarget(lms, bodyRetargeterState)
+                    bodyRetargeterState = newState
+                    _latestBodyResult.value = result
                     _latestBodyLandmarks.value = lms
                 } else {
                     _latestBodyResult.value   = null
@@ -166,6 +169,9 @@ class SpatialFrameProducer(
 
     private val _latestBodyResult    = MutableStateFlow<com.arhand.mocap.BodyRetargetResult?>(null)
     private val _latestBodyLandmarks = MutableStateFlow<com.arhand.tracking.PoseLandmarks?>(null)
+    // This producer's own grace-period/EMA state for BodyRetargeter.retarget() — see
+    // BodyRetargeter's class doc on why this must not be shared with any other caller.
+    private var bodyRetargeterState = BodyRetargeterState.INITIAL
 
     fun setCameraTextureName(texId: Int) = spatialLayer.setCameraTextureName(texId)
     fun onGlFrame()                      = spatialLayer.onDrawFrame()

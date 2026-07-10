@@ -136,7 +136,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val frameThrottler = com.arhand.util.FrameThrottler()
     val bodyPipeline   = BodyPipeline()
     val facePipeline   = FacePipeline()
-    val bodyRetargeter = BodyRetargeter()
+    val bodyRetargeter = BodyRetargeter   // stateless object — see its class doc
     val spatialLayer   = com.arhand.depth.SpatialLayer(getApplication())
     val slDepthSource  = com.arhand.depth.StructuredLightDepthSource()
 
@@ -1312,6 +1312,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Guards against launching the FullBodyFrame merge collector more than once. */
     private var fullBodyCollectorStarted = false
 
+    // This collector's own grace-period/EMA state for BodyRetargeter.retarget() — kept
+    // separate from SpatialFrameProducer's own state (see BodyRetargeter's class doc);
+    // both currently retarget the same bodyPipeline output, so sharing one state would
+    // corrupt it the moment this dormant collector is ever activated.
+    private var ensureFullBodyCollectorState = com.arhand.mocap.BodyRetargeterState.INITIAL
+
     private fun ensureFullBodyCollector() {
         if (fullBodyCollectorStarted) return
         fullBodyCollectorStarted = true
@@ -1336,7 +1342,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     if (trackingManager.state.value.bodyEnabled) {
                         val poseLms = bodyPipeline.processed.value
                         if (poseLms != null) {
-                            val bodyResult = bodyRetargeter.retarget(poseLms)
+                            val (newState, bodyResult) = bodyRetargeter.retarget(poseLms, ensureFullBodyCollectorState)
+                            ensureFullBodyCollectorState = newState
                             latestBodyRetargetResult.value = bodyResult
                         }
                     }
