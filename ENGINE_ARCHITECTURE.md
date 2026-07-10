@@ -610,7 +610,7 @@ the smallest change that completes the feature. (b) If a live preview was never 
 (only post-scan viewing), retire the toggle deliberately. Recommended: (a) unless the product
 answer to §10.1's similar question is "we're trimming half-built preview features" broadly.
 
-### 10.3 `SpatialFrameRouter`'s posed-scan capture branch — an asymmetric migration, not dead weight
+### 10.3 `SpatialFrameRouter`'s posed-scan capture branch — an asymmetric migration, not dead weight — DONE (Phase 2, same motion as §4.3)
 
 `route()`'s capture-append branch is gated on `isScanActive && !isFreeformActive`, but
 `startScan()` (posed scans) never touches `router.isScanActive` — it manages capture entirely
