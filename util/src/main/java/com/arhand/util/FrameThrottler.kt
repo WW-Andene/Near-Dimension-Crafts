@@ -22,8 +22,15 @@ class FrameThrottler(
     private val maxEvery: Int = 4,
     private val targetMs: Float = 20f
 ) {
-    private var inferEvery: Int = 2
-    private var countdown: Int  = 2
+    // ENGINE_ARCHITECTURE.md §17.1 — was hardcoded to 2 (half camera rate) as the
+    // unconditional starting point, before reportInferenceMs() ever measured real GPU
+    // cost. That meant every session started pre-shed to half-rate hand inference
+    // regardless of whether the device had budget to spare, adding a latency floor this
+    // class's own adaptive logic was never asked to justify. Start at minEvery instead —
+    // reportInferenceMs() sheds down from full rate under real measured load, matching
+    // this class's own doc ("adjusts based on last inference duration") literally.
+    private var inferEvery: Int = minEvery
+    private var countdown: Int  = minEvery
 
     /**
      * Call every render frame. Returns true if inference should run this frame.
@@ -69,5 +76,5 @@ class FrameThrottler(
     }
 
     fun currentRate(): Int = inferEvery
-    fun reset() { countdown = 2; inferEvery = 2 }
+    fun reset() { countdown = minEvery; inferEvery = minEvery }
 }

@@ -905,7 +905,152 @@ Every depth/tracking source follows the same `isAvailable`-checked-by-every-cons
 `StereoDepthSource`, `DepthAnythingSource`, ARCore (falls back to "SfM+Photo only"), and
 MediaPipe's GPU→CPU delegate fallback. Consistent, load-bearing — follow it for any new source.
 
-## 16. Explicitly out of scope
+## 17. Perceived quality: latency, occlusion realism, low-light detection
+
+Triggered by direct user reports after using the app: skeleton motion lags visibly behind real
+movement, occluded/hidden parts aren't extrapolated the way a person would expect, and detection
+degrades badly in near-dark conditions. Investigated by tracing the actual per-frame pipeline and
+comparing it against a low-light prototype (`DarkVision.jsx`, a browser demo of manual-exposure +
+multi-frame-stacking + multi-scale-CLAHE dark-scene enhancement) the user pointed to as an example
+of depth/detail this app's own low-light path is missing.
+
+### 17.1 Hand tracking runs at half camera rate by default, before any GPU-budget pressure exists
+
+`FrameThrottler` (`util/FrameThrottler.kt:25`) initializes `inferEvery = 2` — MediaPipe hand
+inference only runs on every *other* camera frame from the start, not because the GPU is
+over budget (that's `reportInferenceMs`'s job, which can lower it back toward `minEvery = 1`),
+but as the unconditional starting point. On a 30fps camera stream this puts a 2× cut (~15fps hand
+sampling) under the pipeline's own retarget/smoothing/render stages before any adaptive logic has
+even measured real inference cost. `reportInferenceMs` only converges `inferEvery` toward 1 once
+several frames measure comfortably under `targetMs * 0.5` (10ms) — real GPU-delegate MediaPipe
+hand inference on mid-range hardware is commonly in the 12–25ms range, close enough to the 20ms
+target that the throttler can plausibly hover at `inferEvery = 2` indefinitely rather than settle
+at 1, meaning this isn't just a brief startup cost.
+
+This compounds with deliberate smoothing latency already in the pipeline by design — the One Euro
+Filter (`HandPipeline.kt:69-71`, `OEF_MIN_CUTOFF_XY = 0.5f`) trades responsiveness for jitter
+rejection, and Temporal Depth Fusion runs before it. None of these are bugs individually (OEF's
+whole point is a cutoff/latency tradeoff; the throttler's whole point is adaptive GPU shedding) —
+the issue is the *stacked default*: half-rate sampling as the unconditional starting point, feeding
+filters that are themselves tuned for smoothness over responsiveness, with no on-device
+measurement in this environment to say where the resulting total lag actually lands.
+
+**Fix options**: (a) Change `FrameThrottler`'s initial `inferEvery` to `minEvery` (1) instead of a
+hardcoded 2, letting `reportInferenceMs` shed *down* from full rate under real measured load
+instead of starting pre-shed — matches the class's own doc ("MIN=1 MAX=4... adjusts based on last
+inference duration") more literally than the current hardcoded-2 start. (b) Tighten
+`OEF_MIN_CUTOFF_XY`/`OEF_BETA_XY` for less smoothing lag at the cost of more visible jitter —
+a genuine UX tradeoff, not a free win, and not guessable correctly without on-device feel-testing.
+Recommended: (a) alone first — it's a one-line change with a clear, defensible rationale (start
+at the class's own stated `minEvery`, let real measured cost shed it down, not a knob need to be
+hand-tuned blind) — then reassess (b) only if lag is still reported after (a) ships and is tested.
+
+### 17.2 Occlusion inference is shallower than it looks, and one of its four signals is inert
+
+`OcclusionEngine.detectOcclusion()` combines four checks, but one is dead: `HandTracker.kt:138`
+sets `visibility = lm.visibility().orElse(1.0f)`. MediaPipe's **Hand** Landmarker (unlike Pose
+Landmarker, which genuinely computes per-landmark visibility) does not populate a real visibility
+score for hand landmarks — the field exists in the shared landmark schema but Hand Landmarker
+never writes it, so `.orElse(1.0f)` resolves to 1.0 on effectively every landmark, every frame.
+`OcclusionEngine.applyInference()`'s check `if (lms[i].visibility < VISIBILITY_THRESHOLD)` (line
+217) is consequently a no-op in practice — occlusion detection actually rests entirely on the
+other three checks (segment-length ratio, Z-chain reversal, palm-plane dot product), all coarse
+3D self-consistency heuristics with no direct visual signal of what the camera can actually see.
+
+Separately, per-joint inference (`inferLandmark()`) only runs while MediaPipe is still reporting
+*some* landmarks for that hand at all (`raw != null` in `HandPipeline.update()`). If the whole hand
+drops out of MediaPipe's detection (heavier occlusion — hidden behind an object, crossed fully
+behind the other hand, moved out of frame briefly), the pipeline takes a different, cruder path:
+it holds the *last known static pose* for `GRACE_FRAMES = 8` frames (~500ms at the effective
+~15fps rate from §17.1), with **no velocity extrapolation at all**, then drops the hand entirely.
+Contrast with `inferLandmark()`'s per-joint blend (FK continuation 50% + velocity 35% + short
+history average 15%) for landmarks MediaPipe is still (unreliably) reporting within an otherwise-
+detected hand — a real, if shallow, extrapolation model exists at the joint level but not at the
+whole-hand level.
+
+Body tracking has no equivalent inference layer at all: `BodyRetargeter`'s visibility gating
+(`BODY-4`, real visibility scores this time — Pose Landmarker does compute them) holds an occluded
+joint at `lastGoodRotation` indefinitely once grace expires (§8.1's fix), but never extrapolates
+motion the way `OcclusionEngine.inferLandmark()` does for hands — an occluded body joint just
+freezes, full stop.
+
+None of this reaches "interpret what the camera can't see" in the sense of true kinematic/prior-
+based inference (e.g., inferring a curled fist's actual finger positions from hand structure, or a
+body part's plausible pose from the visible rest of the skeleton) — the existing "inference" is
+short-horizon linear/FK continuation, which degrades to a frozen or drifting guess for anything
+beyond brief (~200ms, `VEL_EXTRAP_MAX_SEC`) occlusion, by design.
+
+**Fix options**: (a) Remove or replace the dead visibility check in `OcclusionEngine` with
+something that actually reflects Hand Landmarker's real signal — e.g., the tracked hand's overall
+detection score if MediaPipe exposes one, or drop the check and document that hand occlusion
+detection is 3-heuristic-only, not four, so nobody re-relies on a signal that isn't real. (b)
+Extend whole-hand dropout (`raw == null` path) to hold a decaying velocity-extrapolated pose for
+a bounded window instead of a hard static freeze, mirroring `inferLandmark()`'s own fade-to-zero
+model — same shape fix as §8.1's BVH hold-at-last-known, applied one layer up. (c) Give body
+tracking a velocity-extrapolation layer analogous to `OcclusionEngine`, instead of a hard freeze.
+None of these are "make the app see through occlusion" — that would need a genuinely different
+approach (a learned prior over hand/body pose space) — they're honest fixes to what's already
+attempted, not a promise of true occlusion-invariant tracking.
+
+### 17.3 CLAHE contrast enhancement is computed every scan frame but never applied to the image anyone (or MediaPipe) sees — the single biggest lever for low-light detection
+
+`CLAHEAnalyzer.process()`'s own doc comment states it plainly: *"Returns a contrast score [0,1];
+the enhanced bitmap is never materialised."* Confirmed by every call site (repo-wide grep): its
+one caller, `SpatialFrameProducer.processBitmap()` line 287, only runs it `if (scanActive)`, and
+its one consumer, `AppViewModel`'s `claheContrast`, feeds `Scanner`/`FreeformScanner`'s pose
+*quality gating* — a scan-progress metric, not a rendered or tracked image. The actual
+tile-equalized `outLum` buffer this class computes every call is discarded after the contrast
+score is read off it. MediaPipe hand/body/face detection, the ARCore/SfM depth pipeline, and the
+on-screen camera passthrough all receive the raw, unenhanced camera bitmap in every lighting
+condition — nothing in this codebase does any image-domain low-light enhancement before
+detection, ever, scan or no scan.
+
+This is the direct answer to "why is detection so much worse near-dark": there is no image
+preprocessing step improving what the neural network (or a human) can see in a dark frame. The
+`DarkVision.jsx` prototype the user pointed to demonstrates three techniques with zero equivalent
+anywhere in this app:
+
+1. **Manual exposure/ISO** (`applyHardwareExposure`) — pins `exposureMode`/`focusMode` to manual
+   and drives `exposureTime`/`iso` to the camera's own advertised maximum. This app's camera setup
+   (`GrayscaleCamera.kt:94`, `CameraController.kt`) only ever sets `CONTROL_MODE_AUTO` — full
+   auto-exposure, which is tuned by the platform for balanced daylight/indoor behavior (avoiding
+   motion blur, holding frame rate), not for wringing out a sensor's true dark-scene floor.
+   `Camera2Interop` is already a live dependency here (used for FPS-range selection, ArCore §4.8's
+   fix) — the same mechanism DarkVision's `applyHardwareExposure` uses is directly reachable, not
+   a new dependency.
+2. **Multi-frame stacking with motion alignment** — `DepthAnythingSource` has a *conceptually*
+   similar mechanism already (`S2.4`'s `accumBuf`/`stationaryFrameCount` — stationary multi-frame
+   noise averaging), but it's scoped entirely to DA2's *depth* estimate, not the RGB frame feeding
+   MediaPipe. No equivalent averaging/alignment exists for the tracking-facing image.
+3. **Multi-scale CLAHE + gamma lift + unsharp mask, actually applied to a bitmap** — this app's
+   `CLAHEAnalyzer` computes the equivalent of DarkVision's single-scale CLAHE pass internally
+   every call, then throws the result away (see above). Gamma lift and unsharp mask have no
+   equivalent at all in this codebase.
+
+**Fix options** (this is real new engineering, not a bug fix — scoping only, not implemented
+here): (a) Materialise `CLAHEAnalyzer`'s enhanced bitmap and feed it to the MediaPipe detectors
+instead of (or blended with) the raw frame, gated to only activate when the frame is actually
+dark (e.g., mean luminance below a threshold, matching DarkVision's own `DARK_THRESHOLD`
+gating) — applying CLAHE unconditionally in normal lighting risks changing tracking behavior/
+accuracy in every condition, not just dark ones, which is a regression risk this environment can't
+verify without a device. (b) Add a manual-exposure path via the existing `Camera2Interop` hook,
+also dark-gated (auto-exposure is better in normal light; manual max-exposure is what helps in
+near-dark), mirroring `applyHighestFpsRange`'s existing pattern of querying the camera's own
+advertised capabilities rather than hardcoding values a given device might reject. (c)
+Gamma lift and unsharp mask are comparatively cheap, well-isolated additions once (a) exists —
+same tile-based/per-pixel LUT shape `CLAHEAnalyzer` already uses. (d) Multi-frame stacking for the
+tracking-facing image is the largest and riskiest of the four (motion alignment adds real
+complexity and a frame-rate/latency cost that directly fights §17.1's concern) — recommend
+sequencing it last, after (a)/(b) are shipped and their effect is known.
+
+**Not attempted in this pass**: implementing (a)-(d) blind, without a device to verify the
+dark-gating threshold, the enhancement's actual effect on MediaPipe's confidence/accuracy, or its
+performance cost, carries real regression risk across every lighting condition the app is used in
+— not just the dark case it's meant to fix. Recommend this as its own scoped implementation pass,
+sequenced (a) → (b) → (c) → (d), each independently verifiable and revertable, not one large
+change.
+
+## 18. Explicitly out of scope
 
 - Device-specific tuning (NNAPI/GPU-delegate speculation, resolution/quality downgrades) — the
   NNAPI attempt this session regressed both performance and accuracy and was reverted.
