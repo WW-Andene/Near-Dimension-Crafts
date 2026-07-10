@@ -209,12 +209,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val activeGesture: MutableStateFlow<Gesture?> = MutableStateFlow(null)
 
     /**
-     * Hot-path StateFlow: ARCore depth cloud confidence (0–1).
-     * Updated each depth frame — kept out of [AppUiState] for the same reason.
-     */
-    val depthConfidence: MutableStateFlow<Float> = MutableStateFlow(0f)
-
-    /**
      * Hot-path StateFlow: photometric stereo pair count during scan.
      * Updated each camera frame during active stereo capture.
      */
@@ -367,13 +361,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         router.start(producer.frames)
 
-        // Mirror spatial layer depth confidence to UI
-        viewModelScope.launch {
-            producer.spatialLayer.state.collect { s ->
-                depthConfidence.value = s.depthConfidence
-            }
-        }
-
         // Keep producer.scanActive in sync with uiState.scanActive from one place,
         // instead of threading a second flag through every scan start/cancel/complete
         // call site (startScan/cancelScan/processScan/startFreeformScan/...).
@@ -399,8 +386,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     aspect            = currentAspect.value,
                     constraintEnabled = trackingManager.state.value.constraintEnabled
                 )
-                renderer.handsData = hands.map { it.landmarks }
-                renderer.mirrorX = uiState.value.isFrontCamera
+                // renderer.handsData/mirrorX were written here directly *and* by
+                // SpatialFrameRouter.route() from the same producer.assembleFrame() output —
+                // two writers racing on the same fields (ENGINE_ARCHITECTURE.md §4.4). The
+                // router's post-assembly values are canonical; this direct write is removed.
 
                 val primary = hands.firstOrNull()
                 primary?.let { hand ->
@@ -499,7 +488,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                                                 com.arhand.util.Vec3(it.cameraWorldX, it.cameraWorldY, it.cameraWorldZ)
                                             }
                                             tsdfVolume.integrate(masked, depthConf, camPos)
-                                            depthConfidence.value = (store.pointCount / 10000f).coerceIn(0f, 1f)
                                         }
                                     }
                                 }
@@ -540,7 +528,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                                                 com.arhand.util.Vec3(it.cameraWorldX, it.cameraWorldY, it.cameraWorldZ)
                                             }
                                             tsdfVolume.integrate(masked, depthConf, camPos)
-                                            depthConfidence.value = (store.pointCount / 10000f).coerceIn(0f, 1f)
                                         }
                                     }
                                 }
@@ -755,7 +742,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         // drop to SfM-only on front camera, which is the correct degradation).
         if (scanState.value.depthMode) {
             scanState.value = scanState.value.copy(depthMode = false)
-            depthConfidence.value = 0f
             capturedDepthFrames.clear()
         }
         // SL calibration is camera-specific — reset on switch

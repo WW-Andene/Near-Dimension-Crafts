@@ -136,7 +136,6 @@ fun HandyApp(
 
     // Hot-path flows — independent collection prevents full-tree recomposition
     val activeGesture         by vm.activeGesture.collectAsStateWithLifecycle()
-    val depthConfidence       by vm.depthConfidence.collectAsStateWithLifecycle()
     val photoStereoFrameCount by vm.photoStereoFrameCount.collectAsStateWithLifecycle()
     val photoStereoComplete   by vm.photoStereoComplete.collectAsStateWithLifecycle()
 
