@@ -530,11 +530,27 @@ fixes. Not verified on-device — exposure bounds, hysteresis thresholds, and ac
 MediaPipe confidence are reasoned from queried sensor capabilities and the prototype's own values,
 not measured.
 
+## Phase 13 — §17.4: found and fixed a real FrameThrottler feedback bug from an on-device screenshot — DONE
+
+Directly triggered by a user-provided screenshot showing the app's own diagnostic HUD: `INF 9.6ms`
+(fast) next to `SKIP 81%` (almost nothing running) — a gap too large to be normal adaptive
+shedding. Traced it to `reportInferenceMs()` deriving its GPU-budget estimate from `inferEvery`
+itself, which is sometimes the idle-doubled value — once doubled to `maxEvery*2`, the
+decrement-by-1-then-redouble arithmetic re-inflates it back to the same value every call,
+permanently plateauing the skip rate the moment the hand ever goes still, and contradicting the
+class's own doc ("reverts immediately, no ramp delay"— it actually crawled back one step per
+call). Fixed by tracking a separate `gpuRate` field that idle-doubling can never contaminate; see
+ENGINE_ARCHITECTURE.md §17.4 for the full derivation. Also noted (not fixed, not a bug): the HUD's
+`FPS`/`SKIP` come from `PerfMonitor.onFrame()` on the GL render loop's own vsync cadence, a
+different clock than camera-frame arrival — worth knowing when reading those numbers, since a slow
+camera capture rate (e.g. a long low-light exposure) will show as "skip" too, mixed in with actual
+throttling.
+
 ## Recommended order
 
-Phase 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12. Phases 0-4 are all independent of
+Phase 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13. Phases 0-4 are all independent of
 each other technically and could be reordered or parallelized; the sequence above is by impact
-(fix what's visibly broken first), not by dependency. Phases 9 through 12 were all reactive
+(fix what's visibly broken first), not by dependency. Phases 9 through 13 were all reactive
 (direct user requests) rather than part of the original sequence. Remaining open items: the
 narrow, explicitly-scoped-out non-goals noted inline throughout (§8.2's inherent BVH-format
 limitation, §9's larger recomposition restructuring, a few named exclusions inside Phase 8, §17.2's

@@ -1085,6 +1085,42 @@ Not verified on-device (no device access in this environment) — the exposure-t
 dark-mode hysteresis thresholds, and the enhancement's actual effect on MediaPipe's confidence are
 all reasoned from queried sensor capabilities and the prototype's own values, not measured.
 
+### 17.4 `FrameThrottler`'s idle-doubling had a real feedback bug: once doubled, it could never recover to the true GPU-justified rate — DONE
+
+Found from a direct on-device HUD screenshot showing `INF 9.6ms` (fast — well under the 20ms
+target) alongside `SKIP 81%` — a large, otherwise-unexplained gap between "inference is cheap"
+and "inference almost never runs." Root cause: `reportInferenceMs()` computed its GPU-budget
+estimate (`gpuBased`) as `inferEvery - 1` / `inferEvery + 1` — directly off of `inferEvery`, which
+is sometimes the *idle-doubled* value (up to `maxEvery * 2`) written by the previous call, not a
+clean undoubled rate. Once idle-doubling pushed `inferEvery` up to `maxEvery * 2` (e.g. 8), each
+subsequent call computed `gpuBased = max(minEvery, 8 - 1) = 7`, then immediately re-doubled it
+back (`min(maxEvery*2, 7*2) = 8`) — the exact same value it started with. The rate plateaus at
+`maxEvery * 2` **permanently**, regardless of how fast inference actually measures, the moment the
+hand ever goes still even briefly. Worse, this directly contradicts the class's own doc comment
+("reverts to the GPU-budget-based rate immediately, with no ramp-up delay") — motion resumption
+only decremented the inflated value by 1 per call, a slow linear crawl back down, not the
+documented instant recovery. At `maxEvery * 2 = 8`, `shouldInfer()` returns true on only 1 in 8
+camera frames (a 87.5% skip rate) — closely matching the reported 81%.
+
+**Fix applied**: added a second field, `gpuRate`, that tracks the true measured-cost-based rate on
+its own, independent of `inferEvery`'s idle-doubled value. `reportInferenceMs()` now derives
+`gpuBased` from `gpuRate`, and idle-doubling is applied as a pure overlay when writing the public
+`inferEvery` — `gpuRate` itself is never doubled, so it can't be contaminated, and the moment
+motion resumes `inferEvery = gpuRate` directly (true immediate recovery, matching the doc for
+real). This was very likely a meaningful contributor to "still lag" reports independent of (and
+probably larger than) §17.1's inference-rate-baseline fix, which only addressed the *starting*
+value, not this runaway-plateau bug in the ongoing adaptive logic.
+
+**Related observation, not fixed here**: the HUD's `FPS`/`SKIP` readouts come from
+`PerfMonitor.onFrame()`, called once per GL `onDrawFrame` (display-vsync cadence), while
+`onInference()` only increments when a real MediaPipe call actually ran (camera-arrival cadence
+filtered by this throttler). Those are two different clocks — if the camera's own capture rate
+ever falls below the display's refresh rate (e.g. a long manual exposure in near-dark, or simply
+a camera AE-negotiated rate below vsync), `SKIP` will read high even with this bug fixed, because
+some GL redraws necessarily happen between camera frame arrivals with no new frame to show. This
+makes `SKIP` a mix of "throttled by this class" and "camera hasn't delivered a new frame yet," not
+a clean single-cause number — worth knowing when reading the HUD, not a functional bug in itself.
+
 ## 18. Explicitly out of scope
 
 - Device-specific tuning (NNAPI/GPU-delegate speculation, resolution/quality downgrades) — the

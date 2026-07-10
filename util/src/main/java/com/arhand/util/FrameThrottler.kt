@@ -29,8 +29,25 @@ class FrameThrottler(
     // class's own adaptive logic was never asked to justify. Start at minEvery instead —
     // reportInferenceMs() sheds down from full rate under real measured load, matching
     // this class's own doc ("adjusts based on last inference duration") literally.
+    //
+    // ENGINE_ARCHITECTURE.md §17.4 — [gpuRate] is a second, separate field from
+    // [inferEvery], added to fix a real feedback bug: the previous version derived
+    // gpuBased directly from `inferEvery` (`inferEvery - 1` / `+ 1`), but `inferEvery`
+    // is sometimes the *idle-doubled* value (up to maxEvery*2). Once doubled, that
+    // decrement-by-1-then-redouble arithmetic plateaus permanently at maxEvery*2 —
+    // `gpuBased = max(minEvery, doubled - 1)`, then immediately `min(maxEvery*2,
+    // gpuBased*2)` re-inflates it right back to maxEvery*2 on every single call, even
+    // though measured inference cost is comfortably fast. This directly contradicts the
+    // class's own doc above ("reverts to GPU-budget rate immediately, no ramp delay") —
+    // in practice a session that ever went idle even briefly would get stuck skipping
+    // ~87% of frames (maxEvery*2 = 8) indefinitely, regardless of how fast inference
+    // actually ran, and would only crawl back down one step per call after motion
+    // resumed. [gpuRate] tracks the true measured-cost rate on its own, never
+    // contaminated by idle-doubling, so doubling is a pure multiply-when-idle overlay
+    // that fully and immediately undoes itself the instant motion resumes.
+    private var gpuRate:    Int = minEvery
     private var inferEvery: Int = minEvery
-    private var countdown: Int  = minEvery
+    private var countdown:  Int = minEvery
 
     /**
      * Call every render frame. Returns true if inference should run this frame.
@@ -62,19 +79,19 @@ class FrameThrottler(
         motionMag: Float = Float.MAX_VALUE,
         motionThreshold: Float = 0.001f
     ) {
-        val gpuBased = when {
-            ms < targetMs * 0.5f -> maxOf(minEvery, inferEvery - 1)
-            ms > targetMs * 1.5f -> minOf(maxEvery, inferEvery + 1)
-            else -> inferEvery
+        gpuRate = when {
+            ms < targetMs * 0.5f -> maxOf(minEvery, gpuRate - 1)
+            ms > targetMs * 1.5f -> minOf(maxEvery, gpuRate + 1)
+            else -> gpuRate
         }
 
         inferEvery = if (motionMag < motionThreshold) {
-            minOf(maxEvery * 2, gpuBased * 2)
+            minOf(maxEvery * 2, gpuRate * 2)
         } else {
-            gpuBased
+            gpuRate
         }
     }
 
     fun currentRate(): Int = inferEvery
-    fun reset() { countdown = minEvery; inferEvery = minEvery }
+    fun reset() { countdown = minEvery; inferEvery = minEvery; gpuRate = minEvery }
 }
