@@ -77,7 +77,8 @@ data class HandBiometrics(
          */
         fun compute(
             frames: List<Pair<HandLandmarks, Float>>,
-            aspect: Float
+            aspect: Float,
+            camAspect: Float = aspect
         ): HandBiometrics? {
             if (frames.isEmpty()) return null
 
@@ -98,7 +99,7 @@ data class HandBiometrics(
             // Helper: convert one frame's landmarks to world-space, measure one metric
             fun measureAll(lms: HandLandmarks): FloatArray {
                 val world = lms.map { lm ->
-                    val (wx, wy, wz) = landmarkToWorld(lm, aspect, mirrorX = false)
+                    val (wx, wy, wz) = landmarkToWorld(lm, aspect, mirrorX = false, camAspect = camAspect)
                     Vec3(wx, wy, wz)
                 }
                 fun d(a: Int, b: Int) = (world[a] - world[b]).length()

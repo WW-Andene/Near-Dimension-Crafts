@@ -161,12 +161,20 @@ class Scanner {
          * When provided, a body stability gate rejects frames where the wrist or shoulder
          * position has drifted beyond [BODY_DRIFT_THRESH] from the pose reference position.
          */
-        bodyLandmarks: com.arhand.tracking.PoseLandmarks? = null
+        bodyLandmarks: com.arhand.tracking.PoseLandmarks? = null,
+        /**
+         * Real camera capture aspect ratio (bitmap width/height), distinct from [aspect]
+         * (the screen/UI aspect) — needed by [capturePosePoints]'s interpolated points,
+         * which have no MediaPipe world coordinates of their own and so always fall through
+         * to [com.arhand.tracking.landmarkToWorld]'s screen-space reconstruction path.
+         * Defaults to [aspect] only when the real camera aspect isn't known yet.
+         */
+        camAspect: Float = aspect
     ) {
         when (scanState) {
             ScanState.PREFLIGHT  -> updatePreflight(lms, claheContrast, nowMs)
             ScanState.COUNTDOWN  -> updateCountdown(nowMs)
-            ScanState.CAPTURING  -> updateCapture(lms, claheContrast, nowMs, aspect, mirrorX, faceExpressions, bodyLandmarks)
+            ScanState.CAPTURING  -> updateCapture(lms, claheContrast, nowMs, aspect, mirrorX, faceExpressions, bodyLandmarks, camAspect)
             else -> {}
         }
     }
@@ -239,7 +247,8 @@ class Scanner {
         aspect: Float,
         mirrorX: Boolean,
         faceExpressions: FaceExpressions? = null,
-        bodyLandmarks: com.arhand.tracking.PoseLandmarks? = null
+        bodyLandmarks: com.arhand.tracking.PoseLandmarks? = null,
+        camAspect: Float = aspect
     ) {
         if (lms == null) {
             emitStatus(); return
@@ -339,7 +348,7 @@ class Scanner {
 
         if (advanced) {
             // Capture snapshot points for this pose
-            capturePosePoints(lms, aspect, quality.score, mirrorX)
+            capturePosePoints(lms, aspect, quality.score, mirrorX, camAspect)
             advancePose()
         } else {
             _status.value = _status.value.copy(
@@ -353,7 +362,13 @@ class Scanner {
         }
     }
 
-    private fun capturePosePoints(lms: HandLandmarks, aspect: Float, qualityScore: Float, mirrorX: Boolean) {
+    private fun capturePosePoints(
+        lms: HandLandmarks,
+        aspect: Float,
+        qualityScore: Float,
+        mirrorX: Boolean,
+        camAspect: Float = aspect
+    ) {
 
         // "Top-weighted" = highest compositeScore (quality × temporalConsistency).
         // Use top 50% of buffered frames, minimum 1. Fall back to the completion
@@ -377,7 +392,7 @@ class Scanner {
                     val y = pA.y + (pB.y - pA.y) * tv
                     val z = pA.z + (pB.z - pA.z) * tv
                     val (wx, wy, wz) = landmarkToWorld(
-                        com.arhand.tracking.Landmark(x, y, z), aspect, mirrorX = mirrorX
+                        com.arhand.tracking.Landmark(x, y, z), aspect, mirrorX = mirrorX, camAspect = camAspect
                     )
                     cloudPoints.add(Vec3(wx, wy, wz))
                 }

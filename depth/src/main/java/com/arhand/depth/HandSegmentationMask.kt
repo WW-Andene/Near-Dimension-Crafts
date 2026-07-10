@@ -30,10 +30,10 @@ object HandSegmentationMask {
      * @return hull vertices in counter-clockwise order, or empty if fewer than 3
      *         distinct points are available.
      */
-    fun buildHull(lms: HandLandmarks, aspect: Float, mirrorX: Boolean): List<Pair<Float, Float>> {
+    fun buildHull(lms: HandLandmarks, aspect: Float, mirrorX: Boolean, camAspect: Float = aspect): List<Pair<Float, Float>> {
         if (lms.size < 3) return emptyList()
         val pts = lms.map { lm ->
-            val (wx, wy, _) = landmarkToWorld(lm, aspect, mirrorX)
+            val (wx, wy, _) = landmarkToWorld(lm, aspect, mirrorX, camAspect)
             wx to wy
         }
         return convexHull(pts)

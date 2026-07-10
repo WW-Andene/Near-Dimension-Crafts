@@ -212,9 +212,9 @@ object DepthCarver {
     /**
      * Convert HandLandmarks to world-space Vec3 list.
      */
-    fun landmarksToWorld(lms: HandLandmarks, aspect: Float, mirrorX: Boolean = false): List<Vec3> =
+    fun landmarksToWorld(lms: HandLandmarks, aspect: Float, mirrorX: Boolean = false, camAspect: Float = aspect): List<Vec3> =
         lms.map { lm ->
-            val (x, y, z) = landmarkToWorld(lm, aspect, mirrorX = mirrorX)
+            val (x, y, z) = landmarkToWorld(lm, aspect, mirrorX = mirrorX, camAspect = camAspect)
             Vec3(x, y, z)
         }
 }

@@ -454,7 +454,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                         mirrorX         = uiState.value.isFrontCamera,
                         faceExpressions = facePipeline.expressions.value.takeIf { trackingManager.state.value.faceEnabled },
                         // BODY-5 — pass body landmarks for stability gating when active
-                        bodyLandmarks   = bodyPipeline.processed.value.takeIf { trackingManager.state.value.bodyEnabled }
+                        bodyLandmarks   = bodyPipeline.processed.value.takeIf { trackingManager.state.value.bodyEnabled },
+                        // Same crop-compensation fix as boneRetargeter.retarget() above —
+                        // without this, capturePosePoints()'s interpolated cloud points
+                        // (which have no MediaPipe world coords of their own) default
+                        // camAspect = aspect and come out systematically distorted.
+                        camAspect       = latestBitmap?.let { it.width.toFloat() / it.height.toFloat() }
+                            ?: aspect
                     )
 
                     // capturedFrames/biometricFrames for the posed scan are now written
@@ -482,7 +488,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                                                 bi += 4
                                             }
                                             val hull = HandSegmentationMask.buildHull(
-                                                lms, aspect, mirrorX = uiState.value.isFrontCamera
+                                                lms, aspect, mirrorX = uiState.value.isFrontCamera,
+                                                camAspect = latestBitmap?.let { it.width.toFloat() / it.height.toFloat() } ?: aspect
                                             )
                                             val masked = HandSegmentationMask.filterPointCloud(cloud, hull)
                                             capturedDepthFrames.add(masked)
@@ -523,7 +530,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                                                 bi += 4
                                             }
                                             val hull = HandSegmentationMask.buildHull(
-                                                lms, aspect, mirrorX = uiState.value.isFrontCamera
+                                                lms, aspect, mirrorX = uiState.value.isFrontCamera,
+                                                camAspect = latestBitmap?.let { it.width.toFloat() / it.height.toFloat() } ?: aspect
                                             )
                                             val masked = HandSegmentationMask.filterPointCloud(cloud, hull)
                                             capturedDepthFrames.add(masked)

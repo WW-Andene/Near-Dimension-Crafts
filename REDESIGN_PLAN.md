@@ -340,7 +340,7 @@ Sequenced last because 1-4 are genuine redesigns of working code, higher risk, a
 doing once the concrete bugs in Phases 0-7 are fixed and confirmed — redesigning underneath
 unfixed bugs makes them harder to isolate, not easier.
 
-## Phase 9 — Reported on-device symptoms, plus a repo-wide cleanup pass — DONE
+## Phase 9 — Reported on-device symptoms, plus a repo-wide cleanup pass — mostly DONE, one open item (6)
 
 Triggered by direct user reports after Phase 8 shipped, not by a pre-existing
 `ENGINE_ARCHITECTURE.md` finding — each fix added its own §4.7-4.9 entry there afterward, same
@@ -381,6 +381,22 @@ Triggered by direct user reports after Phase 8 shipped, not by a pre-existing
      order (after `com.arhand.util.Vec3`) in 6 files — a fossil from an earlier cross-module
      refactor, corrected. `AppViewModel.kt` had no class-level KDoc for the app's central
      ViewModel — added one.
+5. **`landmarkToWorld`'s `camAspect` silently wrong at 8 of 9 call sites (§4.10)** — triggered by
+   a direct user report of "atrociously inaccurate" scans/tracking. `Scanner.kt`'s posed-scan
+   point capture always took the buggy fallback path (its interpolated points have no MediaPipe
+   world coordinates to prefer), distorting every posed scan's captured geometry, not a rare
+   edge case. Threaded a real `camAspect` through `Scanner`/`HandSegmentationMask`/`DepthCarver`/
+   `HandBiometrics`/`ScanPipeline`'s rest-joint computation — see §4.10 for the full breakdown of
+   which call sites were actively wrong versus latent-but-currently-silent.
+6. **Open, NOT fixed: hand-landmark world coordinates vs. ARCore/SfM depth-cloud world
+   coordinates may not be the same coordinate frame (§4.11)** — found while fixing item 5.
+   `HandSegmentationMask` compares MediaPipe's hand-relative world landmarks against ARCore's
+   room-anchored depth cloud as if they were one coordinate system; they may not be. This is the
+   strongest candidate this session found for depth-mode scan inaccuracy specifically, but the
+   correct fix (composing the camera's ARCore pose into the hand-landmark transform) can't be
+   verified without a device, and getting the pose composition wrong would make scans worse, not
+   better, with no way to detect that from this environment — see §4.11 for why this is flagged
+   rather than attempted blind.
 
 ## Recommended order
 

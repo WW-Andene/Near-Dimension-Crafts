@@ -114,6 +114,9 @@ class SpatialFrameRouter(
     private fun route(frame: SpatialFrame) {
         val primaryLms = frame.primaryHand?.landmarks
         val aspect     = frame.aspect
+        // Real camera capture aspect (bitmap width/height), distinct from the screen-space
+        // aspect above — see landmarkToWorld's camAspect parameter.
+        val camAspect  = latestBitmapProvider()?.let { it.width.toFloat() / it.height.toFloat() } ?: aspect
 
         // ── Renderer ──────────────────────────────────────────────────────────
         renderer.handsData = listOfNotNull(
@@ -220,7 +223,7 @@ class SpatialFrameRouter(
         // confidence — the two are different signals (see ENGINE_ARCHITECTURE.md §4.3/§10.3).
         if (isScanActive && !isFreeformActive && primaryLms != null &&
             scanner.status.value.state == Scanner.ScanState.CAPTURING) {
-            val worldFrames = DepthCarver.landmarksToWorld(primaryLms, aspect, frame.isFrontCamera)
+            val worldFrames = DepthCarver.landmarksToWorld(primaryLms, aspect, frame.isFrontCamera, camAspect)
             val quality     = scanner.status.value.quality
             capturedFrames.add(Pair(worldFrames, quality))
             if (capturedFrames.size % 3 == 0) {
@@ -230,7 +233,7 @@ class SpatialFrameRouter(
 
         // Freeform scan
         if (isScanActive && isFreeformActive) {
-            val worldFrames = primaryLms?.let { DepthCarver.landmarksToWorld(it, aspect, frame.isFrontCamera) }
+            val worldFrames = primaryLms?.let { DepthCarver.landmarksToWorld(it, aspect, frame.isFrontCamera, camAspect) }
             freeformScanner.update(
                 lms           = primaryLms,
                 claheContrast = claheContrast,

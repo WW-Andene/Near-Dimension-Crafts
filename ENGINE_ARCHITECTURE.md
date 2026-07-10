@@ -240,6 +240,77 @@ camera concurrently — is a substantially larger, device-camera-HAL-sensitive i
 attempted here; this is the minimal change that resolves the freeze. No device available in
 this environment to confirm on-device; CI verifies compilation only.
 
+### 4.10 `landmarkToWorld`'s `camAspect` parameter silently defaulted to the wrong value at 8 of 9 call sites — DONE
+
+`landmarkToWorld(lm, aspect, mirrorX, camAspect: Float = aspect)` — `LandmarkUtils.kt:40` — only
+uses `camAspect` in its screen-space fallback branch (taken when a `Landmark`'s `worldX`/`worldY`
+are both exactly `0f`, i.e. no MediaPipe world coordinates available). `camAspect` is meant to be
+the *camera's actual capture aspect ratio* (`bitmap.width/height`, ≈4:3 for this app's 640×480
+capture) — distinct from `aspect`, the on-screen/UI aspect (a modern phone screen, ~9:19.5) —
+so the fallback's crop-compensation math can correct for the camera preview being cropped to fit
+a differently-shaped screen. Only `BoneRetargeter.kt:166` (live hand-puppet retargeting) passed
+it explicitly. Every other call site omitted it, silently taking the wrong default (`camAspect =
+aspect`, i.e. "assume the camera and screen have the same aspect ratio," which they never do on
+a real phone):
+
+- `Scanner.kt`'s `capturePosePoints()` — **always triggered, not an edge case**: it builds
+  denser interpolated points along MediaPipe's 21-landmark skeleton by constructing fresh
+  `Landmark(x, y, z)` values with no `worldX`/`worldY` set at all (they default to `0f`), so this
+  call *always* took the buggy fallback branch, on every posed scan, unconditionally. These
+  points flow directly into `Scanner.cloudPoints` → `ScanCoordinator`/`ScanInput.cloudPoints` →
+  the actual mesh-reconstruction pipeline (`ScanPipeline.kt`) — i.e. this distorted the posed
+  scan's captured geometry on every single scan, not a rare corner case.
+- `HandSegmentationMask.buildHull()`, `DepthCarver.landmarksToWorld()`, `HandBiometrics.compute()`,
+  `ScanPipeline.kt`'s rest-joint computation — all process real MediaPipe `HandLandmarks`, which
+  populate `worldX`/`worldY` in essentially all live-tracking conditions with the Tasks SDK (per
+  `HandBiometrics.kt`'s own doc comment, confirmed by re-reading it), so these took the *correct*
+  (non-`camAspect`-dependent) branch in practice — latent/defensive bugs, not active ones, but the
+  same shape and worth closing given how easily this drifts (proven by the fact it *did* drift).
+
+**Fix**: threaded a real `camAspect` (computed as `latestBitmap?.let { it.width.toFloat() /
+it.height.toFloat() } ?: aspect`, the same expression `BoneRetargeter`'s call site already used)
+through every one of these call chains: `Scanner.update()` → `updateCapture()` →
+`capturePosePoints()`; `HandSegmentationMask.buildHull()`; `DepthCarver.landmarksToWorld()` (and
+its two callers in `SpatialFrameRouter.route()`); `HandBiometrics.compute()`; and the rest-joint
+computation in `ScanPipeline.kt` (computed from `input.capturedBitmaps.firstOrNull()` there, since
+that function doesn't have a live bitmap reference). No device available to confirm the
+resulting improvement in exported scan geometry; CI verifies compilation only.
+
+### 4.11 Hand-landmark "world" coordinates and ARCore/SfM depth-cloud "world" coordinates are not the same coordinate frame — NOT fixed, needs verification
+
+While fixing §4.10, `HandSegmentationMask.buildHull()`/`filterPointCloud()` raised a bigger,
+unresolved question. `buildHull()` converts hand landmarks via `landmarkToWorld()`'s MediaPipe
+world-landmark branch, which returns MediaPipe's own hand-relative metric coordinates (origin at
+approximately the hand's geometric centre, scaled to the hand's real-world size, but **not**
+anchored to any persistent scene/room frame — moving the camera does not move these numbers, they
+describe the hand's shape/pose only). `filterPointCloud()` then tests those hull coordinates
+directly against `store.snapshot()`'s points — the fused ARCore/SfM depth cloud, which **is**
+anchored to ARCore's persistent, room-scale tracking origin (`ArCoreDepthSource.onDrawFrame()`
+transforms every point through `cam.pose`, i.e. the camera's position *in that persistent frame*).
+
+These are two different coordinate systems being compared as if they were one: a hand-relative
+frame that only encodes the hand's own geometry, against a room-anchored frame that encodes where
+things are in the physical room relative to where ARCore's session started. If this reading is
+right, `HandSegmentationMask`'s point-in-polygon test would only "accidentally" mask the correct
+region when the hand happens to sit near ARCore's coordinate origin in world space — not a
+property scanning naturally has (the ARCore origin is wherever the session happened to start
+tracking, unrelated to where the user's hand is), and would drift further from correct the more
+the user moves the camera during a scan (which posed/freeform scanning inherently involves,
+capturing the hand from multiple angles). This is a plausible root cause for `depthMode`-enabled
+scans specifically coming out distorted/inaccurate independent of §4.10's fix.
+
+**Not fixed here.** Reconciling this needs either (a) transforming hand world-landmarks into
+ARCore's frame via the camera's current pose (`ArCoreDepthSource.lastCamX/Y/Z` +
+`lastCamQX/Y/Z/W`) before building the hull, or (b) confirming this reading is wrong and the two
+values are already comparable for some reason not yet found in this pass. Attempting (a) blind,
+without a device to verify the transform is actually correct, risks the same class of regression
+as this session's reverted NNAPI attempt — get the pose composition wrong and scans get *worse*,
+not better, with no way to detect that from this environment. Flagging this explicitly rather
+than guessing at a fix: this is the strongest candidate this session found for "scans/measurements
+are inaccurate" specifically (as opposed to lag), and it needs on-device verification (or a very
+careful, cited derivation from ARCore's/MediaPipe's own coordinate-convention documentation)
+before a fix is attempted.
+
 ## 5. Timing & correlation gaps (values from different cadences combined as if simultaneous)
 
 ### 5.1 Cross-cadence staleness: Core writes some fields at raw-frame rate, Translation reads them at hand-inference rate — DONE (Phase 8 item 1)

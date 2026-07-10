@@ -168,10 +168,14 @@ class ScanPipeline {
             val rjp = FloatArray(BoneRetargeter.JOINT_COUNT * 3)
             val best = input.biometricFrames.maxByOrNull { it.second }
             if (best != null && best.first.size >= 21) {
+                // Real camera capture aspect (bitmap width/height), distinct from input.aspect
+                // (the screen-space aspect) — see landmarkToWorld's camAspect parameter.
+                val camAspect = input.capturedBitmaps.firstOrNull()
+                    ?.let { it.width.toFloat() / it.height.toFloat() } ?: input.aspect
                 for ((jointIdx, baseIdx, tipIdx) in BoneRetargeter.BONE_SEGMENTS) {
                     val bl = best.first[baseIdx]; val tl = best.first[tipIdx]
-                    val (bx, by, bz) = com.arhand.tracking.landmarkToWorld(bl, input.aspect, input.isFrontCamera)
-                    val (tx, ty, tz) = com.arhand.tracking.landmarkToWorld(tl, input.aspect, input.isFrontCamera)
+                    val (bx, by, bz) = com.arhand.tracking.landmarkToWorld(bl, input.aspect, input.isFrontCamera, camAspect)
+                    val (tx, ty, tz) = com.arhand.tracking.landmarkToWorld(tl, input.aspect, input.isFrontCamera, camAspect)
                     rjp[jointIdx * 3]     = (bx + tx) * 0.5f
                     rjp[jointIdx * 3 + 1] = (by + ty) * 0.5f
                     rjp[jointIdx * 3 + 2] = (bz + tz) * 0.5f
