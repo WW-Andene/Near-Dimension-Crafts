@@ -1022,6 +1022,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
                 scanState.value = scanState.value.copy(
                     hasStoredModel         = result.glbFile != null,
+                    completedScanId        = if (result.glbFile != null)
+                                                 scanState.value.completedScanId + 1
+                                             else scanState.value.completedScanId,
                     exportedGlbPath        = result.glbFile?.absolutePath,
                     handBiometrics         = result.biometrics,
                     biometricHistory       = result.biometricHistory,

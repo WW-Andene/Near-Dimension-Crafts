@@ -12,6 +12,13 @@ import com.arhand.scanner.JointRomData
 data class ScanState(
     val isActive:              Boolean                  = false,
     val hasStoredModel:        Boolean                  = false,
+    /**
+     * Monotonically incremented only when a freeform scan *successfully* produces a
+     * model (never touched by cancel/failure). [com.arhand.ui.MainActivity]'s result-modal
+     * trigger keys off a change in this id instead of the ambient [hasStoredModel] flag,
+     * so a cancelled/failed scan after an earlier successful one can't re-show the modal.
+     */
+    val completedScanId:       Int                      = 0,
     val exportedGlbPath:       String?                  = null,
     val handBiometrics:        HandBiometrics?          = null,
     val biometricHistory:      List<com.arhand.scanner.BiometricHistoryEntry> = emptyList(),

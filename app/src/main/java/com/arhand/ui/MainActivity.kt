@@ -155,9 +155,12 @@ fun HandyApp(
     LaunchedEffect(scanStatus.state) {
         if (scanStatus.state == Scanner.ScanState.DONE) showResult = true
     }
-    // Show result modal when freeform scan completes and GLB is ready
-    LaunchedEffect(scanDomainState.freeformActive, scanDomainState.hasStoredModel) {
-        if (!scanDomainState.freeformActive && scanDomainState.hasStoredModel) {
+    // Show result modal only on an actual successful freeform completion — keyed off
+    // completedScanId (bumped once per successful scan) rather than the ambient
+    // hasStoredModel flag, so a later cancelled/failed freeform scan can't re-trigger
+    // the modal from a stale "model exists" state (see ENGINE_ARCHITECTURE.md §4.2).
+    LaunchedEffect(scanDomainState.completedScanId) {
+        if (scanDomainState.completedScanId > 0) {
             showResult = true
         }
     }
