@@ -98,19 +98,25 @@ class SfMDepthSource(private val context: Context) : DepthSource {
     // Reusable batch buffer
     private val batchBuf = FloatArray(MAX_ANCHOR_FEATS * WINDOW_MAX * 4)
 
+    // Stored so stop() can remove the exact same instance it registered — see
+    // BitmapGrayscaleShim's §4.12 doc on why this must not clobber Photometric's listener.
+    private var frameHandler: GrayscaleCamera.FrameListener? = null
+
     override fun start(callback: DepthSourceCallback) {
         this.callback = callback
         reset()
-        val frameHandler = GrayscaleCamera.FrameListener { gray, _, _, tsMs -> processFrame(gray, tsMs) }
+        val handler = GrayscaleCamera.FrameListener { gray, _, _, tsMs -> processFrame(gray, tsMs) }
+        frameHandler = handler
         if (shim != null) {
-            shim!!.setListener(frameHandler)
+            shim!!.addListener(handler)
         } else {
-            camera.start(facingBack = true, listener = frameHandler)
+            camera.start(facingBack = true, listener = handler)
         }
     }
 
     override fun stop() {
-        if (shim != null) shim!!.setListener(null) else camera.stop()
+        if (shim != null) frameHandler?.let { shim!!.removeListener(it) } else camera.stop()
+        frameHandler = null
         callback = null
         reset()
     }

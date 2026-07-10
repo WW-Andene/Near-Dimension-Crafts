@@ -397,6 +397,18 @@ Triggered by direct user reports after Phase 8 shipped, not by a pre-existing
    verified without a device, and getting the pose composition wrong would make scans worse, not
    better, with no way to detect that from this environment — see §4.11 for why this is flagged
    rather than attempted blind.
+7. **`BitmapGrayscaleShim`'s single-listener slot silently disconnected SfM after the first scan
+   of every session (§4.12)** — triggered by being asked to dig deeper into whether the
+   architecture itself, not individual bugs, was the limiting factor. Found a real structural
+   flaw: the shim was built for what looked like one consumer but actually serves two (SfM
+   always-on, Photometric scan-scoped) with a single `setListener` slot, so starting Photometric
+   for the first scan silently clobbered SfM's registration, and ending that scan cleared the
+   slot entirely with nothing ever re-registering SfM afterward. Converted the shim to support
+   multiple listeners (`addListener`/`removeListener`); both sources now store the exact listener
+   instance they registered so `stop()` only removes their own. This is the shape of issue the
+   architecture question was actually asking about — not a missing throttle or a wrong default,
+   but a shared-resource design that silently failed under its own real (two-consumer) usage
+   pattern.
 
 ## Recommended order
 

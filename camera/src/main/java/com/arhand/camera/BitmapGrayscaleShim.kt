@@ -26,8 +26,20 @@ import android.graphics.Matrix
  * }
  * ```
  *
- * Thread safety: [onBitmap] is called from the camera coroutine; the listener is called
- * synchronously on the same thread. No internal state beyond the pre-allocated scratch buffer.
+ * ## Multiple listeners (ENGINE_ARCHITECTURE.md §4.12)
+ *
+ * SfM is always-on for the whole app session; Photometric additionally attaches only
+ * while a scan's reconstruction sources are active (`FusedDepthSource.setReconstructionActive`).
+ * Both attach to the *same* shim instance. A single-slot `setListener` here previously meant
+ * Photometric's `start()` silently clobbered SfM's registration the moment a scan began, and
+ * `stop()` cleared the slot entirely — SfM never re-registered itself afterward, so it went
+ * permanently silent (no more grounding fallback) from the first scan of the session onward.
+ * [addListener]/[removeListener] let both coexist without clobbering each other.
+ *
+ * Thread safety: [onBitmap] is called from the camera coroutine; listeners are called
+ * synchronously on the same thread, so a plain list needs no synchronization. The grayscale
+ * conversion runs once per frame regardless of listener count — dispatching to N listeners
+ * doesn't multiply the conversion cost, only the (cheap) callback invocation.
  */
 class BitmapGrayscaleShim {
 
@@ -36,7 +48,7 @@ class BitmapGrayscaleShim {
         const val OUT_H = GrayscaleCamera.TARGET_H  // 240
     }
 
-    private var listener: GrayscaleCamera.FrameListener? = null
+    private val listeners = ArrayList<GrayscaleCamera.FrameListener>(2)
     private var grayBuf = FloatArray(OUT_W * OUT_H)
 
     // Scale matrix — computed once, reused every frame
@@ -46,18 +58,24 @@ class BitmapGrayscaleShim {
     // Pre-allocated pixel scratch — avoids per-frame IntArray allocation
     private val pixelBuf = IntArray(OUT_W * OUT_H)
 
-    fun setListener(l: GrayscaleCamera.FrameListener?) { listener = l }
+    fun addListener(l: GrayscaleCamera.FrameListener) {
+        if (!listeners.contains(l)) listeners.add(l)
+    }
+
+    fun removeListener(l: GrayscaleCamera.FrameListener) {
+        listeners.remove(l)
+    }
 
     /**
-     * Convert [bitmap] to a 320×240 grayscale FloatArray and dispatch to the listener.
-     * Skips processing if no listener is attached.
+     * Convert [bitmap] to a 320×240 grayscale FloatArray and dispatch to every listener.
+     * Skips processing entirely if no listener is attached.
      *
      * The input Bitmap may be any size — it is scaled to 320×240 then Y-extracted.
      * Uses a single [Bitmap.getPixels] bulk read (~30× faster than per-pixel getPixel).
      * BT.601 luma: Y ≈ 0.299R + 0.587G + 0.114B.
      */
     fun onBitmap(bitmap: Bitmap, timestampMs: Long) {
-        val l = listener ?: return
+        if (listeners.isEmpty()) return
 
         val scaled: Bitmap = if (bitmap.width == OUT_W && bitmap.height == OUT_H) {
             bitmap
@@ -85,6 +103,6 @@ class BitmapGrayscaleShim {
 
         if (scaled !== bitmap) scaled.recycle()
 
-        l.onFrame(gray, OUT_W, OUT_H, timestampMs)
+        for (i in listeners.indices) listeners[i].onFrame(gray, OUT_W, OUT_H, timestampMs)
     }
 }

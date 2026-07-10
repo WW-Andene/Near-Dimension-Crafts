@@ -311,6 +311,44 @@ are inaccurate" specifically (as opposed to lag), and it needs on-device verific
 careful, cited derivation from ARCore's/MediaPipe's own coordinate-convention documentation)
 before a fix is attempted.
 
+### 4.12 `BitmapGrayscaleShim`'s single-listener slot meant SfM went permanently silent after the first scan of every session — DONE
+
+Found while digging deeper into "the architecture doesn't feel strong enough" after §4.7-4.11's
+fixes didn't fully resolve reported lag/inaccuracy — this is a structural design flaw, not a
+one-line bug. `BitmapGrayscaleShim` (`camera/.../BitmapGrayscaleShim.kt`) exists so `SfMDepthSource`
+and `PhotometricDepthSource` can both consume `CameraFrameProvider`'s existing bitmap stream
+without each opening a second camera session. Its actual usage has two *concurrent* consumers:
+SfM registers once at app start and is meant to stay registered for the whole session (it's the
+metric-grounding fallback when ARCore is unavailable — see §2's degradation ladder); Photometric
+registers additionally only while a scan's reconstruction sources are active
+(`FusedDepthSource.setReconstructionActive(true)`) and unregisters when the scan ends.
+
+The shim held only a single `listener` slot (`setListener`), not a set. Tracing the actual call
+sequence: app start → `SfMDepthSource.start()` → `shim.setListener(sfmHandler)` (SfM now
+receiving frames). First scan begins → `setReconstructionActive(true)` → `PhotometricDepthSource
+.start()` → `shim.setListener(photometricHandler)` — this **silently replaces** SfM's
+registration; SfM stops receiving frames for the scan's duration with no error, no log, no
+symptom beyond degraded output. Scan ends → `setReconstructionActive(false)` →
+`PhotometricDepthSource.stop()` → `shim.setListener(null)` — now *neither* source is registered,
+and nothing ever re-registers SfM afterward (`SfMDepthSource.start()` is only ever called once,
+at `FusedDepthSource.start()`). **Net effect: SfM-based grounding goes silent after the first
+scan of every app session and never recovers**, on any device where it matters (i.e. whenever
+ARCore isn't the metric source) — directly explaining sustained accuracy/grounding degradation
+that a single throttling or coordinate-math fix wouldn't touch.
+
+**Fix**: converted `BitmapGrayscaleShim` from a single `listener` field to a small listener list
+(`addListener`/`removeListener`), so both sources can be registered simultaneously without
+clobbering each other. `SfMDepthSource`/`PhotometricDepthSource` each now store the exact
+`GrayscaleCamera.FrameListener` instance they registered so `stop()` removes only their own
+entry. The per-frame grayscale conversion still runs exactly once regardless of listener count —
+this fixes a correctness bug, not a performance one, and adds no per-frame cost.
+
+This is the kind of finding the "is the architecture good enough" question was really asking
+about: not a missing throttle or a wrong default parameter, but a shared resource (the shim)
+designed for what looked like one consumer, actually serving two with incompatible lifecycles,
+with nothing catching the silent handoff failure. No device available to confirm the resulting
+grounding-continuity improvement; CI verifies compilation only.
+
 ## 5. Timing & correlation gaps (values from different cadences combined as if simultaneous)
 
 ### 5.1 Cross-cadence staleness: Core writes some fields at raw-frame rate, Translation reads them at hand-inference rate — DONE (Phase 8 item 1)

@@ -115,26 +115,32 @@ class PhotometricDepthSource(private val context: Context) : DepthSource {
     // Output stride: 7 floats per point (x,y,z,conf,nx,ny,nz)
     private val batchBuf = FloatArray((W / STRIDE) * (H / STRIDE) * 7)
 
+    // Stored so stop() can remove the exact same instance it registered — see
+    // BitmapGrayscaleShim's §4.12 doc on why this must not clobber SfM's listener.
+    private var frameHandler: GrayscaleCamera.FrameListener? = null
+
     override fun start(callback: DepthSourceCallback) {
         this.callback = callback
         frameA = null; frameB = null; torchState = false
         oefMap.clear()
-        val frameHandler = GrayscaleCamera.FrameListener { gray, _, _, tsMs -> onFrame(gray, tsMs) }
+        val handler = GrayscaleCamera.FrameListener { gray, _, _, tsMs -> onFrame(gray, tsMs) }
+        frameHandler = handler
         if (shim != null) {
-            shim!!.setListener(frameHandler)
+            shim!!.addListener(handler)
         } else {
-            camera.start(facingBack = true, listener = frameHandler)
+            camera.start(facingBack = true, listener = handler)
             camera.setTorch(false)
         }
     }
 
     override fun stop() {
         if (shim != null) {
-            shim!!.setListener(null)
+            frameHandler?.let { shim!!.removeListener(it) }
         } else {
             camera.setTorch(false)
             camera.stop()
         }
+        frameHandler = null
         callback = null; frameA = null; frameB = null
     }
 
