@@ -167,7 +167,7 @@ captures the return value and threads it through
 frame whose DA2 inference is still in flight keeps the exact flow reading it was enqueued with,
 immune to being overwritten by a newer frame's SlamLite output.
 
-## Phase 7 — Documentation/contract corrections (no behavior change)
+## Phase 7 — Documentation/contract corrections (no behavior change) — DONE
 
 ### 7.1 `PointCloudStore` doc comment (§6.1)
 
@@ -175,6 +175,14 @@ immune to being overwritten by a newer frame's SlamLite output.
 not GL thread), then separately audit whether the internal synchronization primitive is actually
 adequate for that real contract — treat that audit as its own follow-up, since it might surface
 a second finding depending on what it finds.
+
+**Implemented**: corrected the doc comment — `push` is called from whichever background
+coroutine/thread a producer runs on (`FusedDepthSource`, `StructuredLightDepthSource`); `snapshot`
+is called from *both* the GL thread (`DepthCloudRenderer.onDrawFrame`) *and* `AppViewModel`'s
+hand-pipeline coroutine (fused-depth TSDF snapshot at `AppViewModel.kt`). Audit result: all three
+public methods (`push`/`snapshot`/`clear`) are already `@Synchronized`, which serialises every
+caller regardless of which thread it runs on — this already covers the real (wider) contract
+correctly. No second finding; the gap was the comment, not the synchronization.
 
 ## Blocked — need your decision before these enter any phase
 

@@ -10,9 +10,15 @@ package com.arhand.util
  * EMA centroid (CENTROID_EMA = 0.002) biases the view towards recent geometry;
  * PointCloudRenderer uses it as the orbit centre.
  *
- * Thread-safety: [push] is called from the camera/SfM background thread;
- * [snapshot] is called from the GL thread. Internal synchronisation via a
- * lock on the data array ensures both paths are safe without copies.
+ * Thread-safety: [push] is called from whichever background coroutine/thread a given
+ * [com.arhand.util.PointCloudStore] instance's producer runs on (e.g. [FusedDepthSource]'s
+ * processing dispatcher, [StructuredLightDepthSource]'s capture path); [snapshot] is called
+ * from *both* the GL thread ([PointCloudRenderer]/`DepthCloudRenderer.onDrawFrame`) *and*
+ * `AppViewModel`'s hand-pipeline coroutine (its fused-depth TSDF-integration snapshot). All
+ * three public methods are `@Synchronized`, which serialises every caller regardless of which
+ * thread it runs on — this is what actually makes concurrent `push`/`snapshot` safe, not a
+ * "one writer thread, one reader thread" assumption (see ENGINE_ARCHITECTURE.md §6.1: this
+ * comment previously described a narrower contract than the code actually has).
  */
 class PointCloudStore(private val capacity: Int = 800_000) {
 
