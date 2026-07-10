@@ -215,11 +215,30 @@ produced most of those findings, so the same class of bug is structurally harder
 later. Bigger, more invasive, sequenced after Phases 0-7 land and are verified green.
 
 1. **Timestamped/correlated message passing instead of shared mutable fields for cross-cadence
-   data.** Directly replaces §5.2's SlamLite→DA2 fix (which just makes that one pair correct) with
-   a general mechanism: tag Core-layer values with the timestamp/frame-id they were computed for,
-   and use `Flow.combine`/a custom correlator to only pair values whose timestamps actually match,
-   instead of reading "whatever's freshest right now." Fixes §5.1/§5.4/§5.5's staleness gaps as a
-   side effect of the same mechanism, rather than three separate timestamp-check patches.
+   data** — DONE, scope corrected during implementation against each finding's own recommended
+   fix (re-read directly from `ENGINE_ARCHITECTURE.md` rather than from memory):
+   - §5.2 (SlamLite→DA2) explicitly recommended *parameter passing* over a general
+     timestamp/`Flow.combine` correlator, and that's what Phase 6 already did — no change needed.
+   - §5.3 (camera-frame dual consumers) explicitly recommended *collapsing to one collector*,
+     which item 3 above already did (the `onCameraFrame` callback) — no separate work needed.
+   - §5.1/§5.4/§5.5 explicitly recommended fix (a) in each case — timestamp-tag the value,
+     check/expose age, **not** a `Flow.combine` correlator — with (a) each described as "low
+     risk," "small, contained" and the escalation to a bigger mechanism explicitly gated on
+     on-device data showing the gap matters, which isn't available in this environment. A
+     general `Flow.combine`-based correlator would also be *actively wrong* for §5.1's fields:
+     arbiter weights/metricMode/rppg are written at raw-camera-frame rate and read at the
+     *slower*, throttled hand-inference rate, so they're already fresher than the reader
+     needs — correlating them would mean *slowing hand-tracking down* to match the depth
+     pipeline, a real perf regression for a value that was never actually stale.
+
+   Implemented exactly what each finding recommended: `FusedDepthSource.arbiterWeightsTimestampMs`
+   / `.lastArcoreCallbackMs` and `rPPGSource.lastFrameMs` are now exposed, and
+   `SpatialFrame` carries `fusionWeightsAgeMs`/`metricModeAgeMs`/`rppgAgeMs` computed at assembly
+   time (§5.1 — observability only, no discarding). `FusedDepthSource.updateScaleCalibration()`
+   and `.feedFarPlaneAnchor()` both skip their calibration update when the ARCore callback
+   they're comparing against is more than `MAX_ARCORE_CALLBACK_GAP_MS` (500ms) old, instead of
+   comparing against a wall-clock-unbounded "previous" reading (§5.4/§5.5 — real behavior change,
+   but small and contained exactly as those findings described).
 2. **A sealed-class state machine for the scan lifecycle** — DONE. Replaced
    `scanActive`/`freeformActive`/`isScanActive`/`isFreeformActive` (the exact shape that caused
    §10.3's posed/freeform asymmetry) with `ScanLifecycle` (`Idle`/`Posed`/`Freeform`,

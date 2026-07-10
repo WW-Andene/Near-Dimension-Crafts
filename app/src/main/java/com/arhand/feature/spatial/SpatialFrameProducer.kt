@@ -400,8 +400,9 @@ class SpatialFrameProducer(
         val confidence      = (primaryRetarget?.wristTransform?.let { 1f } ?: 0f)
 
         // ── Emit SpatialFrame ──────────────────────────────────────────────────
+        val assembleTimeMs = System.currentTimeMillis()
         val frame = SpatialFrame(
-            timestamp            = System.currentTimeMillis(),
+            timestamp            = assembleTimeMs,
             aspect               = aspect,
             isFrontCamera        = isFrontCamera,
             primaryHand          = primarySpatial,
@@ -434,7 +435,12 @@ class SpatialFrameProducer(
             fusionWeights        = fusWeights,
             metricSource         = metricSrc,
             frameConfidence      = confidence,
-            activePipelineCount  = activePipelines
+            activePipelineCount  = activePipelines,
+            // 0L means "never computed yet" (e.g. before the first frame) rather than a real
+            // age — reported as 0 rather than a bogus multi-decade age from an epoch timestamp.
+            fusionWeightsAgeMs   = fused.arbiterWeightsTimestampMs.takeIf { it > 0L }?.let { assembleTimeMs - it } ?: 0L,
+            metricModeAgeMs      = fused.lastArcoreCallbackMs.takeIf { it > 0L }?.let { assembleTimeMs - it } ?: 0L,
+            rppgAgeMs            = rppgSrc.lastFrameMs.takeIf { it > 0L }?.let { assembleTimeMs - it } ?: 0L
         )
 
         _frames.tryEmit(frame)

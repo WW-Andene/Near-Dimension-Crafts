@@ -135,10 +135,20 @@ class FusedDepthSource(
     @Volatile var lastArcoreMeanDepth: Float = Float.NaN
         private set
 
+    /** Wall-clock time [lastArcoreMeanDepth] was last written — see [feedFarPlaneAnchor]. */
+    @Volatile private var lastArcoreMeanDepthMs: Long = 0L
+
     /** Last ARCore world-space camera position (x, y, z in metres). */
     private var arcoreCamX = Float.NaN
     private var arcoreCamY = Float.NaN
     private var arcoreCamZ = Float.NaN
+    /**
+     * Wall-clock time of the last ARCore callback — see the time-bound check in
+     * [updateScaleCalibration]. Also exposed for [SpatialFrame]'s §5.1 age tagging: [metricMode]
+     * is set from this same callback, so this timestamp is its freshness signal too.
+     */
+    @Volatile var lastArcoreCallbackMs = 0L
+        private set
 
     /** Last SfM cumulative camera position (pixels). */
     private var sfmCamPx = 0f
@@ -170,6 +180,16 @@ class FusedDepthSource(
 
     // Arbiter weights cached after recomputeArbiter(); indexed [blockIdx × CHANNEL_COUNT + chIdx]
     private val cachedWeights    = FloatArray(BLOCK_COUNT * CrossChannelArbiter.CHANNEL_COUNT)
+
+    /**
+     * ENGINE_ARCHITECTURE.md §5.1 — wall-clock time [cachedWeights] was last recomputed.
+     * `SpatialFrameProducer.assembleFrame()` reads `getMeanArbiterWeights()` at the throttled
+     * hand-inference rate while this is written at raw-frame rate; exposed so a `SpatialFrame`
+     * consumer can see how old the weights actually are instead of assuming they're synchronised
+     * to the bundled hand landmarks.
+     */
+    @Volatile var arbiterWeightsTimestampMs: Long = 0L
+        private set
 
     // Pre-allocated result buffer for getMeanArbiterWeights() — avoids per-frame allocation
     // (called once per assembled SpatialFrame from SpatialFrameProducer.assembleFrame).
@@ -277,6 +297,7 @@ class FusedDepthSource(
             rs     = rsBlocks,
             stereo = stereoBlocks
         ).copyInto(cachedWeights)
+        arbiterWeightsTimestampMs = System.currentTimeMillis()
     }
 
     /**
@@ -354,7 +375,8 @@ class FusedDepthSource(
         sfmScaleFrozen      = false
         scaleHistIdx        = 0
         scaleHistFull       = false
-        lastArcoreMeanDepth = Float.NaN
+        lastArcoreMeanDepth   = Float.NaN
+        lastArcoreMeanDepthMs = 0L
         savedCallback       = callback
 
         // S1.1: Register ALS sensor — one reading per second is sufficient
@@ -428,9 +450,16 @@ class FusedDepthSource(
      * S3.3 — Feed a far-plane metric distance to refine DA2 log-linear calibration.
      * Call when PlaneFitter detects a floor/wall/ceiling at > 3 m.
      * Requires [lastArcoreMeanDepth] as a near anchor reference.
+     *
+     * ENGINE_ARCHITECTURE.md §5.5 — [lastArcoreMeanDepth] is written only from ARCore's own
+     * callback, which can fire at an unrelated moment relative to this call (driven by plane
+     * detection on the camera-frame path). Skip if the near-anchor reading is older than
+     * [MAX_ARCORE_CALLBACK_GAP_MS] rather than calibrating a fresh far plane against a stale
+     * near depth — same shape and threshold as [updateScaleCalibration]'s §5.4 fix.
      */
     fun feedFarPlaneAnchor(planeDistM: Float) {
         if (planeDistM < 3f || lastArcoreMeanDepth.isNaN()) return
+        if (System.currentTimeMillis() - lastArcoreMeanDepthMs > MAX_ARCORE_CALLBACK_GAP_MS) return
         val invNear = da2.sampleAtNormalized(0.5f, 0.5f)
         val invFar  = da2.sampleAtNormalized(0.5f, 0.75f)
         if (invNear > 1e-4f && invFar > 1e-4f && kotlin.math.abs(invNear - invFar) > 1e-4f) {
@@ -538,10 +567,19 @@ class FusedDepthSource(
         if (sfmScaleFrozen) return  // S1.3: scale converged and frozen — hold forever
 
         val prevX = arcoreCamX; val prevY = arcoreCamY; val prevZ = arcoreCamZ
+        val prevCallbackMs = lastArcoreCallbackMs
+        val now = System.currentTimeMillis()
 
         arcoreCamX = camX; arcoreCamY = camY; arcoreCamZ = camZ
+        lastArcoreCallbackMs = now
 
         if (prevX.isNaN()) return  // first frame
+
+        // ENGINE_ARCHITECTURE.md §5.4 — irregular ARCore callback timing under load could
+        // otherwise compare a large-but-old displacement against fresh SfM pixel displacement.
+        // Treat a gap this large the same as "first frame": update the position baseline
+        // above, but skip this round's scale update rather than calibrating off a stale pair.
+        if (now - prevCallbackMs > MAX_ARCORE_CALLBACK_GAP_MS) return
 
         val arcoreDisp = sqrt(
             (camX - prevX) * (camX - prevX) +
@@ -664,7 +702,8 @@ class FusedDepthSource(
                     if (dist > maxDist) { maxDist = dist; maxWx = batch[i*4]; maxWy = batch[i*4+1]; maxWz = batch[i*4+2] }
                 }
                 val meanDepth = (sumDist / n).coerceIn(0.1f, 8f)
-                lastArcoreMeanDepth = meanDepth
+                lastArcoreMeanDepth   = meanDepth
+                lastArcoreMeanDepthMs = System.currentTimeMillis()
 
                 val da2Centre = da2.sampleAtNormalized(0.5f, 0.5f)
                 if (da2Centre > 1e-4f) {
@@ -763,6 +802,10 @@ class FusedDepthSource(
         private const val SCALE_EMA_ALPHA  = 0.05f   // slow EMA — stable over many frames
         private const val SCALE_MIN_SAMPLES = 5       // Warm-up: fast EMA alpha, converges in ~5 frames.
         private const val PX_TO_M_DEFAULT  = 0.001f  // SfMDepthSource hardcoded fallback
+        // ENGINE_ARCHITECTURE.md §5.4 — ARCore callbacks normally arrive every camera frame
+        // (well under 100ms); a gap this large means the "previous" pose is too old to treat
+        // as adjacent to the current one for a displacement-based scale update.
+        private const val MAX_ARCORE_CALLBACK_GAP_MS = 500L
 
         // Confidence weights per source — ARCore always wins at a contested voxel
         private const val CONF_ARCORE      = 1.0f

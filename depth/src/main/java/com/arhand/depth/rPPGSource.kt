@@ -69,7 +69,15 @@ class rPPGSource {
     private var ampHead     = 0
 
     private var frameRate   = 30f
-    private var lastFrameMs = 0L
+
+    /**
+     * ENGINE_ARCHITECTURE.md §5.1 — wall-clock time [process] last ran. `bpm`/`amplitude` are
+     * written here at raw-frame rate but read by `SpatialFrameProducer.assembleFrame()` at the
+     * throttled hand-inference rate; exposed so a `SpatialFrame` consumer can see the actual
+     * age of these values instead of assuming they're synchronised to the bundled hand landmarks.
+     */
+    @Volatile var lastFrameMs = 0L
+        private set
 
     // S1.4 — Differential rPPG: previous absolute green mean for frame-to-frame difference
     private var prevGreenMean: Float = Float.NaN

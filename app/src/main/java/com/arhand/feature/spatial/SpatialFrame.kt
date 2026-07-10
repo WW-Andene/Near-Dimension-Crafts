@@ -130,7 +130,23 @@ data class SpatialFrame(
     // ── Frame quality ─────────────────────────────────────────────────────────
 
     val frameConfidence:      Float,
-    val activePipelineCount:  Int
+    val activePipelineCount:  Int,
+
+    // ── Cross-cadence age (ENGINE_ARCHITECTURE.md §5.1) ───────────────────────
+    // fusionWeights/metricGrounded/rppg* above are written by Core-layer code at raw-frame
+    // rate but this SpatialFrame is assembled at the throttled hand-inference rate — these
+    // ages (milliseconds since each value was actually last computed) let a consumer see how
+    // synchronised (or not) they really are to [timestamp]/the bundled hand landmarks, instead
+    // of silently assuming "whatever Core last computed" is current. Low-risk observability
+    // only, per that finding's recommended fix — no discarding/gating added without on-device
+    // data showing the gap is actually large enough to matter.
+
+    /** Milliseconds since [fusionWeights] was last recomputed. */
+    val fusionWeightsAgeMs: Long = 0L,
+    /** Milliseconds since [metricGrounded]/[metricSource]'s underlying ARCore callback last fired. */
+    val metricModeAgeMs:    Long = 0L,
+    /** Milliseconds since [rppgAmplitude]/[rppgBPM] were last computed. */
+    val rppgAgeMs:           Long = 0L
 )
 
 /**
