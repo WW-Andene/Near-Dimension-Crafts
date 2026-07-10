@@ -220,10 +220,17 @@ later. Bigger, more invasive, sequenced after Phases 0-7 land and are verified g
    and use `Flow.combine`/a custom correlator to only pair values whose timestamps actually match,
    instead of reading "whatever's freshest right now." Fixes §5.1/§5.4/§5.5's staleness gaps as a
    side effect of the same mechanism, rather than three separate timestamp-check patches.
-2. **A sealed-class state machine for the scan lifecycle**, replacing the current
-   `scanActive`/`freeformActive`/`isScanActive`/`isFreeformActive`/`depthMode` boolean set that
-   has to be hand-synchronized across ~9 call sites (the exact shape that caused §10.3's
-   posed/freeform asymmetry). One transition function, invalid combinations unrepresentable.
+2. **A sealed-class state machine for the scan lifecycle** — DONE. Replaced
+   `scanActive`/`freeformActive`/`isScanActive`/`isFreeformActive` (the exact shape that caused
+   §10.3's posed/freeform asymmetry) with `ScanLifecycle` (`Idle`/`Posed`/`Freeform`,
+   `feature/scan/ScanState.kt`) and one `AppViewModel.setScanLifecycle()` transition function that
+   sets all four from one value. `depthMode` stayed a separate flag — it's a genuinely orthogonal,
+   independently user-toggleable feature (`toggleDepth()` works outside an active scan too), not
+   a sub-state of scan mode; folding it into the sealed class would have been a false economy.
+   Building this surfaced a second real desync bug beyond §10.3: the freeform `FAILED` watcher
+   only reset 2 of the 4 flags, leaving the router still thinking a freeform scan was active
+   after it had already failed — now fixed for free by routing through the same transition
+   function.
 3. **Narrow `AppViewModel`'s visibility to raw tracking streams.** Make `handPipeline`,
    `bodyPipeline`, and `CameraFrameProvider.frames` inaccessible outside `SpatialFrameProducer`
    (Kotlin `internal`/module boundaries, not just convention) so the double-writer bugs (§4.4,

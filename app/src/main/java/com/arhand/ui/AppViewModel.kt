@@ -68,6 +68,7 @@ import com.arhand.scanner.HandBiometrics
 import com.arhand.render.LiveMeshDeformer
 import com.arhand.feature.record.TakeEntry
 import com.arhand.feature.scan.NeuralReconDiagnostics
+import com.arhand.feature.scan.ScanLifecycle
 
 /**
  * Gap 5 — A single completed recording take.
@@ -558,10 +559,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 scanState.value = scanState.value.copy(freeformStatus = fs)
                 when (fs.state) {
                     com.arhand.scanner.FreeformScanner.State.COMPLETE -> processFreeformScan()
-                    com.arhand.scanner.FreeformScanner.State.FAILED   -> {
-                        uiState.update { it.copy(scanActive = false) }
-                        scanState.value = scanState.value.copy(freeformActive = false)
-                    }
+                    // Previously reset only uiState.scanActive + scanState.freeformActive —
+                    // router.isScanActive/isFreeformActive stayed true, so the router kept
+                    // feeding a failed scan on every frame until the user separately cancelled.
+                    com.arhand.scanner.FreeformScanner.State.FAILED   -> setScanLifecycle(ScanLifecycle.Idle)
                     else -> {}
                 }
             }
@@ -788,6 +789,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * Single point of truth for "which scan mode is running right now" — sets
+     * [com.arhand.feature.scan.ScanState.freeformActive], [AppUiState.scanActive],
+     * [router]'s `isScanActive`/`isFreeformActive` together from one
+     * [com.arhand.feature.scan.ScanLifecycle] value, so they can't drift apart the way the
+     * four hand-synchronized booleans they replace used to. Callers still own the side effects
+     * around a transition (torch, TSDF, buffers, depthMode) — this only sets the four flags.
+     */
+    private fun setScanLifecycle(state: ScanLifecycle) {
+        val active = state != ScanLifecycle.Idle
+        uiState.update { it.copy(scanActive = active) }
+        scanState.value = scanState.value.copy(freeformActive = state == ScanLifecycle.Freeform)
+        router.isScanActive     = active
+        router.isFreeformActive = state == ScanLifecycle.Freeform
+    }
+
     fun startScan() {
         capturedFrames.clear()
         biometricFrames.clear()
@@ -808,7 +825,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (scanState.value.photoStereoEnabled) photoStereoCapture.start()
         photoStereoFrameCount.value = 0
         photoStereoComplete.value   = false
-        uiState.update { it.copy(scanActive = true) }
 
         // HAND-6 — Reset the incremental carver and start collecting pose-done signals.
         // Training begins after pose index 2 (the 3rd completed pose) — enough data
@@ -835,7 +851,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
 
-        router.isScanActive = true
+        setScanLifecycle(ScanLifecycle.Posed)
         scanner.start()
     }
 
@@ -853,10 +869,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (scanState.value.photoStereoEnabled && !uiState.value.isFrontCamera) {
             cameraController.setTorch(torchOnAtScanStart)
         }
-        uiState.update { it.copy(scanActive = false) }
         scanState.value = scanState.value.copy(depthMode = false)
         spatialLayer.setReconstructionActive(false)
-        router.isScanActive = false
+        setScanLifecycle(ScanLifecycle.Idle)
     }
 
     // ─── LIMIT-2: Freeform (continuous) scan ─────────────────────────────────
@@ -911,10 +926,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
 
         freeformScanner.start()
-        scanState.value = scanState.value.copy(freeformActive = true)
-        router.isFreeformActive = true
-        router.isScanActive     = true
-        uiState.update { it.copy(scanActive = true) }
+        setScanLifecycle(ScanLifecycle.Freeform)
     }
 
     /** User taps "Finish" during freeform scan — validates coverage then triggers processing. */
@@ -937,11 +949,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (scanState.value.photoStereoEnabled && !uiState.value.isFrontCamera) {
             cameraController.setTorch(torchOnAtScanStart)
         }
-        uiState.update { it.copy(scanActive = false) }
-        scanState.value = scanState.value.copy(freeformActive = false, freeformStatus = null, depthMode = false)
+        scanState.value = scanState.value.copy(freeformStatus = null, depthMode = false)
         spatialLayer.setReconstructionActive(false)
-        router.isFreeformActive = false
-        router.isScanActive     = false
+        setScanLifecycle(ScanLifecycle.Idle)
     }
 
     /**
@@ -1003,7 +1013,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     biometricHistory       = result.biometricHistory,
                     jointRomData           = null,
                     neuralReconDiagnostics = result.neuralDiagnostics,
-                    freeformActive         = false,
                     depthMode              = false
                 )
                 spatialLayer.setReconstructionActive(false)
@@ -1028,9 +1037,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 }
 
                 freeformScanner.reset()
-                uiState.update { it.copy(scanActive = false) }
-                router.isFreeformActive = false
-                router.isScanActive     = false
+                setScanLifecycle(ScanLifecycle.Idle)
 
             } catch (e: Exception) {
                 android.util.Log.e("AppViewModel", "processFreeformScan failed", e)
@@ -1039,11 +1046,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 if (scanState.value.photoStereoEnabled && !uiState.value.isFrontCamera) {
                     cameraController.setTorch(torchOnAtScanStart)
                 }
-                scanState.value = scanState.value.copy(freeformActive = false, depthMode = false)
+                scanState.value = scanState.value.copy(depthMode = false)
                 spatialLayer.setReconstructionActive(false)
-                uiState.update { it.copy(scanActive = false) }
-                router.isFreeformActive = false
-                router.isScanActive     = false
+                setScanLifecycle(ScanLifecycle.Idle)
             }
         }
     }
@@ -1125,10 +1130,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 }
 
                 scanner.markDone()
-                uiState.update { it.copy(scanActive = false) }
                 scanState.value = scanState.value.copy(depthMode = false)
                 spatialLayer.setReconstructionActive(false)
-                router.isScanActive = false
+                setScanLifecycle(ScanLifecycle.Idle)
 
             } catch (e: Exception) {
                 scanner.markFailed(e.message ?: "Processing error")
@@ -1136,10 +1140,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 if (scanState.value.photoStereoEnabled && !uiState.value.isFrontCamera) {
                     cameraController.setTorch(torchOnAtScanStart)
                 }
-                uiState.update { it.copy(scanActive = false) }
                 scanState.value = scanState.value.copy(depthMode = false)
                 spatialLayer.setReconstructionActive(false)
-                router.isScanActive = false
+                setScanLifecycle(ScanLifecycle.Idle)
             }
         }
     }

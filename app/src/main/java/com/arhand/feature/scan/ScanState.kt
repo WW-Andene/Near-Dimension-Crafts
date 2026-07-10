@@ -4,6 +4,26 @@ import com.arhand.scanner.HandBiometrics
 import com.arhand.scanner.JointRomData
 
 /**
+ * Which scan mode is currently running: nothing, a posed scan, or a freeform scan.
+ *
+ * Before this existed, "which mode is active" was represented by four booleans spread across
+ * two objects — `AppUiState.scanActive`, `ScanState.freeformActive`,
+ * `SpatialFrameRouter.isScanActive`, `SpatialFrameRouter.isFreeformActive` — that every scan
+ * start/cancel/complete call site had to remember to set together. That shape caused two real
+ * bugs: `SpatialFrameRouter`'s posed-scan capture branch was dead code because nothing ever set
+ * `isScanActive` for a posed scan (ENGINE_ARCHITECTURE.md §10.3), and the freeform-scan `FAILED`
+ * watcher only reset 2 of the 4 flags, leaving the router still thinking a freeform scan was
+ * active after it had already failed. `com.arhand.ui.AppViewModel.setScanLifecycle` is now the
+ * single place that sets all four from one [ScanLifecycle] value, so a call site can no longer
+ * forget one of them.
+ */
+sealed class ScanLifecycle {
+    object Idle     : ScanLifecycle()
+    object Posed    : ScanLifecycle()
+    object Freeform : ScanLifecycle()
+}
+
+/**
  * Immutable state snapshot for the scan feature.
  *
  * Collected independently by consumers such as [com.arhand.ui.ScanResultModal] —
@@ -29,7 +49,10 @@ data class ScanState(
     val depthMode:             Boolean                  = false,
     val depthApiAvailable:     Boolean                  = false,
     val arcoreDepthHw:         Boolean                  = false,
-    /** LIMIT-2 — True while a freeform (continuous) scan is accumulating frames. */
+    /**
+     * LIMIT-2 — True while a freeform (continuous) scan is accumulating frames.
+     * Set only via [com.arhand.ui.AppViewModel.setScanLifecycle] — see [ScanLifecycle].
+     */
     val freeformActive:        Boolean                  = false,
     /** LIMIT-2 — Latest status from [com.arhand.scanner.FreeformScanner]. */
     val freeformStatus:        com.arhand.scanner.FreeformScanner.FreeformStatus? = null,
