@@ -262,19 +262,7 @@ confirm it's actually adequate. (b) If GL-thread access is genuinely needed else
 the original intent, add it there instead and keep the doc — but no such caller was found in
 this pass. Recommended: (a).
 
-### 6.2 `rPPGSource.snsProxy` is computed every warm camera frame and read by nothing
-
-`rPPGSource.kt:186` computes this every frame once warm; zero external readers anywhere in the
-repo (grep-verified). Wasted work for the lifetime of the app, ungated.
-
-**Fix options**: (a) Delete the computation — this is one of the few cases in this document
-where deletion looks safe per §3.2's checklist (no doc comment or naming suggests an intended,
-never-wired consumer; it reads as leftover instrumentation, not an unfinished feature). Still
-flag for a deliberate confirmation before removing, per the standing rule. (b) If retained for
-future debug/telemetry use, gate it behind the same scan/feature-flag pattern this session's
-CLAHE fix used, so it isn't computed on every single frame regardless of need.
-
-### 6.3 `WhiteScreenOverlay`'s doc comment promises an API that doesn't exist, and nothing calls it
+### 6.2 `WhiteScreenOverlay`'s doc comment promises an API that doesn't exist, and nothing calls it
 
 `WhiteScreenOverlay.kt:16-29`: doc comment says "call `trigger()` to fire a single 200ms flash,"
 but there is no `trigger()` — the real signature takes `visible: Boolean` and runs an *infinite*
@@ -466,6 +454,34 @@ in favor of something else (in which case: retire it and its stale doc comment d
 is a `FreeformPanel`-shaped UI still wanted under the current `WorkflowMode` design (in which
 case: rebuild its trigger condition, not just re-add a call site)? Flagged per §3.2 — needs a
 decision, not a unilateral fix in either direction.
+
+### 10.5 `rPPGSource.snsProxy` — a deliberately designed metric with no consumer, corrected from an earlier "safe to delete" misclassification
+
+**This document previously (in this same research pass) recommended deleting this as wasted
+computation. That was wrong, caught on review before anything was acted on** — exactly the
+mistake §3.2 exists to prevent, made again despite the rule already being written down. Re-reading
+`rPPGSource.kt`'s own class doc comment (lines 26-30) shows a dedicated `## SNS proxy` section:
+*"High-frequency variability in [amplitude] correlates with sympathetic nervous system (SNS)
+arousal. A simple measure is the coefficient of variation of [amplitude] over the last few
+seconds."* `snsProxy` is a named, `@Volatile`, properly-`reset()`-integrated public property
+sitting alongside `bpm`/`amplitude` — same construction, same care — not an incidental
+leftover. It is computed correctly every warm frame (§6's original observation that nothing
+reads it externally still holds, verified by repo-wide grep) but has no wired consumer, the
+same shape as §10.1–§10.2: a real, deliberately-designed feature (a stress/arousal indicator,
+presumably meant for a biometric or wellness-adjacent UI/OSC output) missing its connection.
+
+**Open product question, not a technical one**: was an SNS/stress indicator meant to reach the
+UI or OSC output (e.g. alongside `sendRppg`)? If yes: wire it to a consumer (e.g. add it to
+`OscStreamer.sendRppg`'s payload or a HUD element) — the computation is already correct and
+tested-by-construction (mirrors `bpm`/`amplitude`'s pattern exactly). If no: retire it
+deliberately and remove the doc section describing it, as one decision, not a unilateral
+deletion of just the code while the doc comment still describes intent.
+
+**Why this is flagged so explicitly**: it's evidence the mistake §3.2 was written to prevent
+recurred even after the rule existed and even within a pass that was specifically re-reviewing
+for exactly this failure mode. The rule (read the candidate's own doc comments before concluding
+"unused" means "delete") only works if it's actually applied every time, not just to the cases
+that inspired it.
 
 ## 11. Intentional multi-writer patterns — not bugs, don't "fix" into a violation
 
