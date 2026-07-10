@@ -276,40 +276,57 @@ computation in `ScanPipeline.kt` (computed from `input.capturedBitmaps.firstOrNu
 that function doesn't have a live bitmap reference). No device available to confirm the
 resulting improvement in exported scan geometry; CI verifies compilation only.
 
-### 4.11 Hand-landmark "world" coordinates and ARCore/SfM depth-cloud "world" coordinates are not the same coordinate frame — NOT fixed, needs verification
+### 4.11 Hand-landmark "world" coordinates and ARCore/SfM depth-cloud "world" coordinates are not the same coordinate frame — root cause CONFIRMED, correct fix scoped but NOT attempted (too large/risky for this pass)
 
-While fixing §4.10, `HandSegmentationMask.buildHull()`/`filterPointCloud()` raised a bigger,
-unresolved question. `buildHull()` converts hand landmarks via `landmarkToWorld()`'s MediaPipe
-world-landmark branch, which returns MediaPipe's own hand-relative metric coordinates (origin at
-approximately the hand's geometric centre, scaled to the hand's real-world size, but **not**
-anchored to any persistent scene/room frame — moving the camera does not move these numbers, they
-describe the hand's shape/pose only). `filterPointCloud()` then tests those hull coordinates
-directly against `store.snapshot()`'s points — the fused ARCore/SfM depth cloud, which **is**
-anchored to ARCore's persistent, room-scale tracking origin (`ArCoreDepthSource.onDrawFrame()`
-transforms every point through `cam.pose`, i.e. the camera's position *in that persistent frame*).
+While fixing §4.10, `HandSegmentationMask.buildHull()`/`filterPointCloud()` raised a bigger
+question, investigated further per direct request. Root cause is now confirmed, not just
+hypothesized — `HandTracker.kt:120`'s own comment states it plainly: *"World landmarks: metric
+3D coordinates (meters), origin at hand geometric center."* This means MediaPipe's world
+landmarks encode **only the hand's shape/pose** — they are deliberately re-centered to the
+hand's own centroid every frame, which discards all information about *where the hand actually
+is* relative to the camera or the room. `filterPointCloud()` then tests hull coordinates derived
+from these hand-centred points directly against `store.snapshot()`'s points — the fused
+ARCore/SfM depth cloud, anchored to ARCore's persistent room-scale tracking origin
+(`ArCoreDepthSource.onDrawFrame()` transforms every point through `cam.pose`). These are
+confirmed-different coordinate systems.
 
-These are two different coordinate systems being compared as if they were one: a hand-relative
-frame that only encodes the hand's own geometry, against a room-anchored frame that encodes where
-things are in the physical room relative to where ARCore's session started. If this reading is
-right, `HandSegmentationMask`'s point-in-polygon test would only "accidentally" mask the correct
-region when the hand happens to sit near ARCore's coordinate origin in world space — not a
-property scanning naturally has (the ARCore origin is wherever the session happened to start
-tracking, unrelated to where the user's hand is), and would drift further from correct the more
-the user moves the camera during a scan (which posed/freeform scanning inherently involves,
-capturing the hand from multiple angles). This is a plausible root cause for `depthMode`-enabled
-scans specifically coming out distorted/inaccurate independent of §4.10's fix.
+**Why a simple pose-composition fix cannot rescue this** (the fix this document originally
+proposed investigating): composing the camera's ARCore pose onto the hand-centred landmarks
+would correctly re-orient them, but has no way to recover the *translation* — how far the hand
+actually is from the camera, and in what direction — because MediaPipe discarded that
+information when it re-centred the landmarks to the hand's own centroid. There is nothing left
+in the world-landmark data to compose the missing translation from. This is confirmed by
+contrast with the codebase's own correct usage of these same landmarks: `BoneRetargeter.kt:164-177`
+converts hand landmarks via the identical `landmarkToWorld()` call, but only ever computes
+*relative* direction vectors between joints (`world[tipIdx] - world[baseIdx]`) for
+`shortestArcQuaternion` — a calculation that's invariant to the landmarks' arbitrary origin,
+because only the angle between two vectors expressed in the same frame matters, not their
+absolute position. `HandSegmentationMask` is the only place in the codebase that (incorrectly)
+treats these landmarks' *absolute* position as meaningful for cross-referencing against a
+different frame.
 
-**Not fixed here.** Reconciling this needs either (a) transforming hand world-landmarks into
-ARCore's frame via the camera's current pose (`ArCoreDepthSource.lastCamX/Y/Z` +
-`lastCamQX/Y/Z/W`) before building the hull, or (b) confirming this reading is wrong and the two
-values are already comparable for some reason not yet found in this pass. Attempting (a) blind,
-without a device to verify the transform is actually correct, risks the same class of regression
-as this session's reverted NNAPI attempt — get the pose composition wrong and scans get *worse*,
-not better, with no way to detect that from this environment. Flagging this explicitly rather
-than guessing at a fix: this is the strongest candidate this session found for "scans/measurements
-are inaccurate" specifically (as opposed to lag), and it needs on-device verification (or a very
-careful, cited derivation from ARCore's/MediaPipe's own coordinate-convention documentation)
-before a fix is attempted.
+**Severity, best-effort estimate**: potentially worse than "imprecise" — if the hand hull sits
+near coordinate (0,0,0)-ish (wherever MediaPipe re-centres it) while `cloud`'s real points sit
+wherever ARCore's session happened to anchor its origin (arbitrary — wherever tracking first
+stabilized, unrelated to where the user later holds their hand), the hull could fail to overlap
+`cloud` at all for most of a scan, meaning `filterPointCloud` silently rejects nearly everything
+passed to it. Whether this is "somewhat imprecise" or "near-total masking failure in practice"
+cannot be determined without a device — this depends on distances involved that aren't known
+from static analysis.
+
+**What a correct fix actually requires** (scoped, not attempted): going back to *before*
+MediaPipe's world-landmark re-centring — using real per-landmark camera-space position (from
+SL-corrected depth or DA2's calibrated depth at each landmark's 2D pixel, combined with camera
+intrinsics to unproject into camera-space X/Y/Z), then composing that camera-space position with
+the camera's current ARCore pose to place it in world space. This is a materially different (and
+larger) piece of work than "add a pose-composition step" — it needs a working per-landmark metric
+depth source, which is itself only conditionally available (SL calibration state, DA2 XR
+calibration warm-up), each an additional dependency this fix would inherit. **Not attempted in
+this pass**: this is a scoped follow-up in its own right, not a same-session fix, and the
+`depthMode`/TSDF path it affects is one of several reconstruction paths (the default,
+landmark-only `DepthCarver.carveAndExtract` path never touches `store`/ARCore's cloud at all, so
+is unaffected by this specific bug). Recommend treating this as its own dedicated pass with
+device access, not guessed at further here.
 
 ### 4.12 `BitmapGrayscaleShim`'s single-listener slot meant SfM went permanently silent after the first scan of every session — DONE
 

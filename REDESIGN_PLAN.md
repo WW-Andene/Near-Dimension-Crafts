@@ -388,15 +388,22 @@ Triggered by direct user reports after Phase 8 shipped, not by a pre-existing
    edge case. Threaded a real `camAspect` through `Scanner`/`HandSegmentationMask`/`DepthCarver`/
    `HandBiometrics`/`ScanPipeline`'s rest-joint computation — see §4.10 for the full breakdown of
    which call sites were actively wrong versus latent-but-currently-silent.
-6. **Open, NOT fixed: hand-landmark world coordinates vs. ARCore/SfM depth-cloud world
-   coordinates may not be the same coordinate frame (§4.11)** — found while fixing item 5.
-   `HandSegmentationMask` compares MediaPipe's hand-relative world landmarks against ARCore's
-   room-anchored depth cloud as if they were one coordinate system; they may not be. This is the
-   strongest candidate this session found for depth-mode scan inaccuracy specifically, but the
-   correct fix (composing the camera's ARCore pose into the hand-landmark transform) can't be
-   verified without a device, and getting the pose composition wrong would make scans worse, not
-   better, with no way to detect that from this environment — see §4.11 for why this is flagged
-   rather than attempted blind.
+6. **Root cause CONFIRMED, correct fix scoped but NOT attempted: hand-landmark world coordinates
+   vs. ARCore/SfM depth-cloud world coordinates are different coordinate frames (§4.11)** — found
+   while fixing item 5, investigated further on direct request. Confirmed via `HandTracker.kt`'s
+   own comment ("origin at hand geometric center") that MediaPipe world landmarks discard the
+   hand's actual position relative to camera/room — they encode shape only. A pose-composition
+   fix (compose ARCore's camera pose onto the hand landmarks) **cannot work**: there is no
+   translation information left in hand-centred landmarks to compose a room position from — it
+   was already thrown away. Confirmed by contrast with `BoneRetargeter`'s correct usage of the
+   same landmarks (relative direction vectors only, origin-invariant) — `HandSegmentationMask` is
+   the only place that (incorrectly) treats these landmarks' absolute position as meaningful.
+   A correct fix requires going back to real per-landmark camera-space depth (SL/DA2) and
+   unprojecting via camera intrinsics before composing with ARCore's pose — a materially larger
+   piece of work with its own conditional dependencies (SL calibration, DA2 XR warm-up), scoped
+   as its own follow-up rather than attempted blind here. Severity could be more than "imprecise"
+   (possibly near-total masking failure for `depthMode` scans specifically) but isn't
+   determinable without a device — see §4.11 for the full derivation.
 7. **`BitmapGrayscaleShim`'s single-listener slot silently disconnected SfM after the first scan
    of every session (§4.12)** — triggered by being asked to dig deeper into whether the
    architecture itself, not individual bugs, was the limiting factor. Found a real structural
