@@ -234,13 +234,37 @@ confirmed historical event on record. Cited here as the standing case study for 
 exists, and as an admission that this document's own methodology wasn't always this careful
 before this pass.
 
-### 5.2 The ~21k-line "duplicate app-module code" deletion — flagged, not yet independently re-verified
+### 5.2 The ~21k-line "duplicate app-module code" deletion — independently re-audited, confirmed safe
 
-Earlier in this session, a large deletion (~21k lines, described at the time as duplicate/dead
-app-module code, claimed "verified no orphaned symbols") happened before the context window
-this document's research passes had direct access to. Unlike §5.1, this has not been
-independently re-checked against §5's rule. It is flagged here as open, not as confirmed-safe
-or confirmed-unsafe — an honest "don't know yet," pending the audit requested for this pass.
+Earlier in this session, commit `52b9f54` removed 87 files under `app/src/main/java/com/arhand/
+{camera,depth,export,mocap,render,scanner,tracking,util}/` — full pre-modularization copies of
+code that also existed in the corresponding library modules `app` already depended on via
+`project(':x')`. This was re-audited independently this pass, not just re-read: every one of the
+87 deleted files was diffed programmatically against its module counterpart *as both existed at
+the moment of deletion* (`52b9f54^`, not today's versions, to avoid comparing against unrelated
+later work).
+
+Result: **69 files were byte-for-byte identical** to their module counterpart. The remaining
+**18 differed**, and every single one of those differences was the module version being ahead
+of the app-local copy — never the reverse:
+- Package-path corrections for functions already relocated to their real home (`com.arhand.util.
+  landmarkToWorld`/`lmDist` → `com.arhand.tracking.landmarkToWorld`/`lmDist`, appearing in
+  `DepthCarver.kt`, `HandSegmentationMask.kt`, `BoneRetargeter.kt`, `HandMeshBuilder.kt`,
+  `HandBiometrics.kt`, `Scanner.kt`, `QualityEngine.kt`, `util/MathUtils.kt`) — this is the exact
+  mechanism behind the `ScanPipeline` build failure fixed immediately after (`6304cd3`): the
+  stale app-local copy of `landmarkToWorld` was masking an already-broken reference, not holding
+  something the module version lacked.
+- Features present in the module version and absent from the stale app-local copy: GAP-2 morph
+  target delta parsing (`AssetLoader.kt`, `SkinnedMeshRenderer.kt`), v27 OSC addresses and send
+  methods (`OscSchemaAddresses.kt`, `OscStreamer.kt` — `sendCameraPose`/`sendRppg`/
+  `sendDepthMetric`/`sendHandOcclusion`/`sendPlanes` all present and independently confirmed
+  live in `SpatialFrameRouter.kt` today), IMU world-frame pre-rotation (`BodyPipeline.kt`),
+  dual-threshold occlusion hysteresis (`OcclusionEngine.kt`).
+
+No file showed the reverse — nothing found only in an app-local copy and missing from its
+module counterpart. Conclusion: this deletion removed stale, superseded shadow copies in favor
+of the actively-maintained module versions, with no functionality lost. Confirmed safe, not
+just re-asserted.
 
 ## 6. Concurrency contract (kept, still accurate)
 
