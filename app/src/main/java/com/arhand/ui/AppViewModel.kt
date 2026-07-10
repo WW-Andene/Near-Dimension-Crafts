@@ -68,7 +68,6 @@ import com.arhand.scanner.HandBiometrics
 import com.arhand.render.LiveMeshDeformer
 import com.arhand.feature.record.TakeEntry
 import com.arhand.feature.scan.NeuralReconDiagnostics
-import com.arhand.feature.scan.ScanLifecycle
 
 /**
  * Gap 5 — A single completed recording take.
@@ -189,15 +188,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     )
 
     // ── Scan accumulation (delegated to router) ───────────────────────────────
-    private val capturedFrames      get() = router.capturedFrames
+    // capturedFrames/capturedScanBitmaps moved fully to scanCoordinator with the scan
+    // start/cancel/process functions that were their only callers (REDESIGN_PLAN Phase 8
+    // item 5); capturedDepthFrames/biometricFrames still have other callers here.
     private val capturedDepthFrames get() = router.capturedDepthFrames
-    private val capturedScanBitmaps get() = router.capturedBitmaps
     private val biometricFrames     get() = router.biometricFrames
 
     /** R1 — Latest camera bitmap. Written each frame by producer. */
     private val latestBitmap: Bitmap? get() = producer.latestBitmap
-
-    private var torchOnAtScanStart: Boolean = true
 
     val depthMeshPositions: MutableStateFlow<FloatArray> = MutableStateFlow(FloatArray(0))
 
@@ -227,16 +225,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      */
     private val liveMeshDeformer = LiveMeshDeformer()
 
-    /**
-     * Rest-pose joint positions captured at the moment the scan completes.
-     * Flat float array: JOINT_COUNT × 3 floats (world-space xyz per joint).
-     * Null until the first scan completes.
-     */
-    // @Volatile: written from a Dispatchers.Default scan-processing coroutine
-    // (processScan/processFreeformScan), read from the main-thread-bound export/HUD
-    // call sites — visibility across threads, not ordering, was the actual gap
-    // (ENGINE_ARCHITECTURE.md §4.6; the two writers are mutually exclusive by workflow).
-    @Volatile private var restJointPositions: FloatArray? = null
+    // restJointPositions now lives on scanCoordinator (REDESIGN_PLAN Phase 8 item 5) —
+    // read via scanCoordinator.restJointPositions.
 
     // ── Mocap state ────────────────────────────────────────────────────────
     /** Currently loaded asset. Starts as the default puppet (no mesh, symmetric bind pose). */
@@ -264,18 +254,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** IMP-1 — Speed-adaptive quaternion EMA filter applied after retargeting. */
     private val quaternionEmaFilter = QuaternionEmaFilter()
 
-    /**
-     * HAND-6 — Shared [NeuralImplicitCarver] instance for incremental training during scan.
-     *
-     * Created at scan start; trained incrementally after each pose via [poseCaptureDone].
-     * When [processScan] runs, it calls [NeuralImplicitCarver.trainIncremental] with the
-     * remaining poses on top of the already-trained weights — total compute budget is the
-     * same as full training, but partial scans produce progressively better meshes.
-     */
-    private var incrementalCarver: com.arhand.depth.NeuralImplicitCarver? = null
-
-    /** Background job running incremental training. Cancelled if scan is cancelled. */
-    private var incrementalTrainJob: kotlinx.coroutines.Job? = null
+    // incrementalCarver/incrementalTrainJob now live on scanCoordinator (REDESIGN_PLAN
+    // Phase 8 item 5) — used exclusively by scan start/cancel/process, which moved with them.
 
     /** G3 — OSC receiver — listens for incoming hand pose data from a remote Handy device. */
     val oscReceiver = OscReceiver()
@@ -541,38 +521,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
 
-        // Watch scanner state → trigger processing when done
-        viewModelScope.launch {
-            scanner.status.collect { status ->
-                when (status.state) {
-                    Scanner.ScanState.PROCESSING -> processScan()
-                    else -> {}
-                }
-            }
-        }
-
-        // LIMIT-2 — Watch freeform scanner state → trigger processing when complete
-        viewModelScope.launch {
-            freeformScanner.status.collect { fs ->
-                scanState.value = scanState.value.copy(freeformStatus = fs)
-                when (fs.state) {
-                    com.arhand.scanner.FreeformScanner.State.COMPLETE -> processFreeformScan()
-                    // Previously reset only uiState.scanActive + scanState.freeformActive —
-                    // router.isScanActive/isFreeformActive stayed true, so the router kept
-                    // feeding a failed scan on every frame until the user separately cancelled.
-                    com.arhand.scanner.FreeformScanner.State.FAILED   -> setScanLifecycle(ScanLifecycle.Idle)
-                    else -> {}
-                }
-            }
-        }
-
-        viewModelScope.launch {
-            val history = modelStore.loadHistory()
-            scanState.value = scanState.value.copy(
-                hasStoredModel   = modelStore.hasModel(),
-                biometricHistory = history
-            )
-        }
+        // Scan/freeform-scan status watchers + initial scanState history load now live on
+        // scanCoordinator (REDESIGN_PLAN.md Phase 8, item 5).
+        scanCoordinator.start()
 
         // Phase 1 — Body skeleton: enable body tracking and forward landmarks to GL renderer.
         enableBodyTracking(true)
@@ -659,7 +610,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (nowActive) {
             // Ensure deformer is bound to the current scanned mesh
             val meshPos = depthMeshPositions.value
-            val restJoints = restJointPositions
+            val restJoints = scanCoordinator.restJointPositions
             if (meshPos.isNotEmpty() && restJoints != null && !liveMeshDeformer.hasMesh()) {
                 liveMeshDeformer.buildSkinWeights(meshPos, restJoints)
             }
@@ -718,6 +669,40 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** G5 — Most recent photometric normal map. Null until the first stereo-enabled scan. */
     val photoStereoNormalMap: MutableStateFlow<com.arhand.scanner.PhotometricNormalMap?> =
         MutableStateFlow(null)
+
+    // ── ScanCoordinator — owns posed/freeform scan lifecycle orchestration ────
+    // (REDESIGN_PLAN.md Phase 8, item 5). Declared after every collaborator it takes by
+    // reference, since a class property's initializer runs at the point of its own
+    // declaration — placing this earlier would pass still-uninitialized properties in.
+    val scanCoordinator = com.arhand.feature.scan.ScanCoordinator(
+        scope                = viewModelScope,
+        app                  = getApplication(),
+        uiState              = uiState,
+        scanState            = scanState,
+        scanner              = scanner,
+        freeformScanner      = freeformScanner,
+        router               = router,
+        spatialLayer         = spatialLayer,
+        tsdfVolume           = tsdfVolume,
+        modelStore           = modelStore,
+        photoStereoCapture   = photoStereoCapture,
+        photoStereoNormalMap = photoStereoNormalMap,
+        photoStereoFrameCount = photoStereoFrameCount,
+        photoStereoComplete  = photoStereoComplete,
+        renderer             = renderer,
+        depthMeshPositions   = depthMeshPositions,
+        currentAspect        = currentAspect,
+        liveMeshDeformer     = liveMeshDeformer,
+        handPipeline         = handPipeline,
+        getCameraController  = { cameraController },
+        latestBitmap         = { latestBitmap },
+        persistOefCalibration = { cutoff, beta ->
+            getApplication<Application>().oefDataStore.edit { prefs ->
+                prefs[KEY_OEF_CUTOFF] = cutoff
+                prefs[KEY_OEF_BETA]   = beta
+            }
+        }
+    )
 
     fun toggleTorch() {
         val next = !uiState.value.torchOn
@@ -787,363 +772,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /**
-     * Single point of truth for "which scan mode is running right now" — sets
-     * [com.arhand.feature.scan.ScanState.freeformActive], [AppUiState.scanActive],
-     * [router]'s `isScanActive`/`isFreeformActive` together from one
-     * [com.arhand.feature.scan.ScanLifecycle] value, so they can't drift apart the way the
-     * four hand-synchronized booleans they replace used to. Callers still own the side effects
-     * around a transition (torch, TSDF, buffers, depthMode) — this only sets the four flags.
-     */
-    private fun setScanLifecycle(state: ScanLifecycle) {
-        val active = state != ScanLifecycle.Idle
-        uiState.update { it.copy(scanActive = active) }
-        scanState.value = scanState.value.copy(freeformActive = state == ScanLifecycle.Freeform)
-        router.isScanActive     = active
-        router.isFreeformActive = state == ScanLifecycle.Freeform
-    }
-
-    fun startScan() {
-        capturedFrames.clear()
-        biometricFrames.clear()
-        capturedDepthFrames.clear()
-        capturedScanBitmaps.clear()   // R1
-        tsdfVolume.reset()
-
-        // Depth reconstruction (photometric/stereo/RS-stereo/PSP) only runs during an
-        // active scan — see SpatialLayer.setReconstructionActive. Rear-camera-only,
-        // same constraint toggleDepth() has always had (TSDF needs the rear metric cloud).
-        if (!uiState.value.isFrontCamera) {
-            scanState.value = scanState.value.copy(depthMode = true)
-            spatialLayer.setReconstructionActive(true)
-        }
-
-        torchOnAtScanStart = uiState.value.torchOn
-        photoStereoCapture.reset()
-        if (scanState.value.photoStereoEnabled) photoStereoCapture.start()
-        photoStereoFrameCount.value = 0
-        photoStereoComplete.value   = false
-
-        // HAND-6 — Reset the incremental carver and start collecting pose-done signals.
-        // Training begins after pose index 2 (the 3rd completed pose) — enough data
-        // for a coarse network, and early enough to be useful for partial scans.
-        if (scanState.value.neuralReconEnabled) {
-            val carver = com.arhand.depth.NeuralImplicitCarver()
-            incrementalCarver = carver
-            incrementalTrainJob?.cancel()
-            incrementalTrainJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
-                scanner.poseCaptureDone.collect { poseIdx ->
-                    // R1 — Snapshot the current camera frame for texture baking.
-                    // Bitmap.copy() is thread-safe on read; the copy is immutable.
-                    latestBitmap?.let { bmp ->
-                        val copy = bmp.copy(bmp.config ?: Bitmap.Config.ARGB_8888, false)
-                        synchronized(capturedScanBitmaps) { capturedScanBitmaps.add(copy) }
-                    }
-
-                    if (poseIdx < 2) return@collect   // wait for at least 3 poses
-                    // Snapshot the frames captured so far for this incremental pass
-                    val frameSnapshot = synchronized(capturedFrames) { capturedFrames.toList() }
-                    val normalMap     = photoStereoNormalMap.value
-                    carver.trainIncremental(frameSnapshot, normalMap = normalMap)
-                }
-            }
-        }
-
-        setScanLifecycle(ScanLifecycle.Posed)
-        scanner.start()
-    }
-
-    fun cancelScan() {
-        incrementalTrainJob?.cancel()
-        incrementalTrainJob = null
-        incrementalCarver   = null
-        scanner.reset()
-        capturedFrames.clear()
-        biometricFrames.clear()
-        capturedDepthFrames.clear()
-        capturedScanBitmaps.clear()   // R1
-        photoStereoCapture.stop()
-
-        if (scanState.value.photoStereoEnabled && !uiState.value.isFrontCamera) {
-            cameraController.setTorch(torchOnAtScanStart)
-        }
-        scanState.value = scanState.value.copy(depthMode = false)
-        spatialLayer.setReconstructionActive(false)
-        setScanLifecycle(ScanLifecycle.Idle)
-    }
-
-    // ─── LIMIT-2: Freeform (continuous) scan ─────────────────────────────────
-
-    /**
-     * Start a continuous freeform scan.
-     *
-     * The user rotates their hand freely over 8–20 seconds instead of holding
-     * specific poses. [FreeformScanner] gates frames on quality, motion velocity,
-     * and viewpoint novelty, then auto-completes when coverage and frame count
-     * targets are met. [processFreeformScan] is triggered automatically on completion.
-     *
-     * Shares the same depth integration path (TSDF + ARCore) as the posed scan.
-     */
-    fun startFreeformScan() {
-        capturedFrames.clear()
-        biometricFrames.clear()
-        capturedDepthFrames.clear()
-        capturedScanBitmaps.clear()
-        tsdfVolume.reset()
-
-        if (!uiState.value.isFrontCamera) {
-            scanState.value = scanState.value.copy(depthMode = true)
-            spatialLayer.setReconstructionActive(true)
-        }
-
-        torchOnAtScanStart = uiState.value.torchOn
-        photoStereoCapture.reset()
-        if (scanState.value.photoStereoEnabled) photoStereoCapture.start()
-        photoStereoFrameCount.value = 0
-        photoStereoComplete.value   = false
-
-        // Start incremental neural recon — trains every 30 accepted freeform frames
-        if (scanState.value.neuralReconEnabled) {
-            val carver = com.arhand.depth.NeuralImplicitCarver()
-            incrementalCarver = carver
-            incrementalTrainJob?.cancel()
-            incrementalTrainJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
-                var lastTrainedCount = 0
-                freeformScanner.status.collect { fs ->
-                    if (fs.state != com.arhand.scanner.FreeformScanner.State.ACTIVE) return@collect
-                    val count = fs.frameCount
-                    if (count - lastTrainedCount >= 30 && count > 0) {
-                        lastTrainedCount = count
-                        val snapshot = synchronized(freeformScanner.capturedFrames) {
-                            freeformScanner.capturedFrames.toList()
-                        }
-                        carver.trainIncremental(snapshot, normalMap = photoStereoNormalMap.value)
-                    }
-                }
-            }
-        }
-
-        freeformScanner.start()
-        setScanLifecycle(ScanLifecycle.Freeform)
-    }
-
-    /** User taps "Finish" during freeform scan — validates coverage then triggers processing. */
-    fun finishFreeformScan() {
-        freeformScanner.finish()
-        // Completion / failure handled by the freeformScanner.status watcher in init
-    }
-
-    fun cancelFreeformScan() {
-        incrementalTrainJob?.cancel()
-        incrementalTrainJob = null
-        incrementalCarver   = null
-        freeformScanner.reset()
-        capturedFrames.clear()
-        biometricFrames.clear()
-        capturedDepthFrames.clear()
-        capturedScanBitmaps.clear()
-        photoStereoCapture.stop()
-
-        if (scanState.value.photoStereoEnabled && !uiState.value.isFrontCamera) {
-            cameraController.setTorch(torchOnAtScanStart)
-        }
-        scanState.value = scanState.value.copy(freeformStatus = null, depthMode = false)
-        spatialLayer.setReconstructionActive(false)
-        setScanLifecycle(ScanLifecycle.Idle)
-    }
-
-    /**
-     * Process a completed freeform scan.
-     *
-     * Builds [ScanInput] from [FreeformScanner]'s accumulated frames and delegates
-     * to [ScanPipeline.process] — identical pipeline to the posed scan. The TSDF
-     * volume and depth frames populated during the freeform capture feed the same
-     * ARCore-grounded surface reconstruction path.
-     */
-    private fun processFreeformScan() {
-        // Finalise photometric stereo if it ran
-        if (scanState.value.photoStereoEnabled && photoStereoCapture.frameCount > 0) {
-            viewModelScope.launch(Dispatchers.IO) {
-                val normalMap = photoStereoCapture.computeNormalMap()
-                if (!normalMap.isEmpty) photoStereoNormalMap.value = normalMap
-                photoStereoCapture.stop()
-                cameraController.setTorch(torchOnAtScanStart)
-            }
-        }
-
-        val input = com.arhand.feature.scan.ScanInput(
-            cloudPoints        = freeformScanner.capturedFrames.flatMap { it.first },
-            capturedFrames     = freeformScanner.capturedFrames.toList(),
-            biometricFrames    = freeformScanner.biometricFrames.toList(),
-            capturedDepth      = capturedDepthFrames.toList(),
-            capturedBitmaps    = synchronized(freeformScanner.capturedBitmaps) {
-                                     freeformScanner.capturedBitmaps.toList() },
-            normalMap          = photoStereoNormalMap.value,
-            tsdfVolume         = tsdfVolume,
-            incrementalCarver  = incrementalCarver,
-            neuralReconEnabled = scanState.value.neuralReconEnabled,
-            smplEnabled        = com.arhand.BuildConfig.FEATURE_SMPL_BODY,
-            aspect             = currentAspect.value,
-            isFrontCamera      = uiState.value.isFrontCamera,
-            modelStore         = modelStore
-        )
-
-        viewModelScope.launch(Dispatchers.Default) {
-            try {
-                val result = com.arhand.feature.scan.ScanPipeline()
-                    .process(input, getApplication())
-
-                renderer.depthMeshPositions = result.meshPositions
-                depthMeshPositions.value    = result.meshPositions
-
-                result.restJointPositions?.let { rjp ->
-                    restJointPositions = rjp
-                    liveMeshDeformer.buildSkinWeights(result.meshPositions, rjp)
-                }
-
-                scanState.value = scanState.value.copy(
-                    hasStoredModel         = result.glbFile != null,
-                    completedScanId        = if (result.glbFile != null)
-                                                 scanState.value.completedScanId + 1
-                                             else scanState.value.completedScanId,
-                    exportedGlbPath        = result.glbFile?.absolutePath,
-                    handBiometrics         = result.biometrics,
-                    biometricHistory       = result.biometricHistory,
-                    jointRomData           = null,
-                    neuralReconDiagnostics = result.neuralDiagnostics,
-                    depthMode              = false
-                )
-                spatialLayer.setReconstructionActive(false)
-
-                result.calibratedOefCutoff?.let { cutoff ->
-                    result.calibratedOefBeta?.let { beta ->
-                        handPipeline.setOefParams(cutoff, beta)
-                        getApplication<Application>().oefDataStore.edit { prefs ->
-                            prefs[KEY_OEF_CUTOFF] = cutoff
-                            prefs[KEY_OEF_BETA]   = beta
-                        }
-                    }
-                }
-
-                incrementalTrainJob?.cancel()
-                incrementalTrainJob = null
-                incrementalCarver   = null
-
-                result.glbFile?.let { f ->
-                    val scoresJson = "[]"   // freeform has no pose scores
-                    modelStore.saveModel(f, input.cloudPoints.size, scoresJson, result.biometrics)
-                }
-
-                freeformScanner.reset()
-                setScanLifecycle(ScanLifecycle.Idle)
-
-            } catch (e: Exception) {
-                android.util.Log.e("AppViewModel", "processFreeformScan failed", e)
-                freeformScanner.reset()
-                photoStereoCapture.stop()
-                if (scanState.value.photoStereoEnabled && !uiState.value.isFrontCamera) {
-                    cameraController.setTorch(torchOnAtScanStart)
-                }
-                scanState.value = scanState.value.copy(depthMode = false)
-                spatialLayer.setReconstructionActive(false)
-                setScanLifecycle(ScanLifecycle.Idle)
-            }
-        }
-    }
-    /**
-     * Processes a completed scan using [ScanPipeline].
-     *
-     * Snapshots all mutable buffers synchronously on the calling thread, then
-     * delegates the full computation to [ScanPipeline.process] on [Dispatchers.Default].
-     * The resulting [ScanResult] is distributed to the renderer, scanState, and
-     * LiveMeshDeformer — no processing logic lives here.
-     */
-    private fun processScan() {
-        val input = com.arhand.feature.scan.ScanInput(
-            cloudPoints        = scanner.cloudPoints.toList(),
-            capturedFrames     = capturedFrames.toList(),
-            biometricFrames    = biometricFrames.toList(),
-            capturedDepth      = capturedDepthFrames.toList(),
-            capturedBitmaps    = synchronized(capturedScanBitmaps) { capturedScanBitmaps.toList() },
-            normalMap          = photoStereoNormalMap.value,
-            tsdfVolume         = tsdfVolume,
-            incrementalCarver  = incrementalCarver,
-            neuralReconEnabled = scanState.value.neuralReconEnabled,
-            smplEnabled        = com.arhand.BuildConfig.FEATURE_SMPL_BODY,
-            aspect             = currentAspect.value,
-            isFrontCamera      = uiState.value.isFrontCamera,
-            modelStore         = modelStore
-        )
-
-        viewModelScope.launch(Dispatchers.Default) {
-            try {
-                val result = com.arhand.feature.scan.ScanPipeline()
-                    .process(input, getApplication())
-
-                // Distribute ScanResult to all consumers
-                renderer.depthMeshPositions  = result.meshPositions
-                depthMeshPositions.value     = result.meshPositions
-
-                result.restJointPositions?.let { rjp ->
-                    restJointPositions = rjp
-                    liveMeshDeformer.buildSkinWeights(result.meshPositions, rjp)
-                }
-
-                scanState.value = scanState.value.copy(
-                    hasStoredModel         = result.glbFile != null,
-                    exportedGlbPath        = result.glbFile?.absolutePath,
-                    handBiometrics         = result.biometrics,
-                    biometricHistory       = result.biometricHistory,
-                    jointRomData           = scanner.romData,
-                    neuralReconDiagnostics = result.neuralDiagnostics
-                )
-
-                result.calibratedOefCutoff?.let { cutoff ->
-                    result.calibratedOefBeta?.let { beta ->
-                        handPipeline.setOefParams(cutoff, beta)
-                        getApplication<Application>().oefDataStore.edit { prefs ->
-                            prefs[KEY_OEF_CUTOFF] = cutoff
-                            prefs[KEY_OEF_BETA]   = beta
-                        }
-                    }
-                }
-
-                // Clean up incremental carver state — pipeline has consumed it
-                incrementalTrainJob?.cancel()
-                incrementalTrainJob = null
-                incrementalCarver   = null
-
-                // Finalise photometric stereo capture if it ran
-                if (scanState.value.photoStereoEnabled && photoStereoCapture.frameCount > 0) {
-                    val normalMap = photoStereoCapture.computeNormalMap()
-                    if (!normalMap.isEmpty) photoStereoNormalMap.value = normalMap
-                    photoStereoCapture.stop()
-                    cameraController.setTorch(torchOnAtScanStart)
-                }
-
-                result.glbFile?.let { f ->
-                    val scoresJson = scanner.status.value.poseScores
-                        .joinToString(",", "[", "]") { "%.3f".format(it) }
-                    modelStore.saveModel(f, input.cloudPoints.size, scoresJson, result.biometrics)
-                }
-
-                scanner.markDone()
-                scanState.value = scanState.value.copy(depthMode = false)
-                spatialLayer.setReconstructionActive(false)
-                setScanLifecycle(ScanLifecycle.Idle)
-
-            } catch (e: Exception) {
-                scanner.markFailed(e.message ?: "Processing error")
-                photoStereoCapture.stop()
-                if (scanState.value.photoStereoEnabled && !uiState.value.isFrontCamera) {
-                    cameraController.setTorch(torchOnAtScanStart)
-                }
-                scanState.value = scanState.value.copy(depthMode = false)
-                spatialLayer.setReconstructionActive(false)
-                setScanLifecycle(ScanLifecycle.Idle)
-            }
-        }
-    }
+    // ── Scan lifecycle — thin forwarding to scanCoordinator ───────────────────
+    // (REDESIGN_PLAN.md Phase 8, item 5). Logic/state live on scanCoordinator now;
+    // these exist only so MainActivity's existing vm.startScan() etc. call sites don't change.
+    fun startScan()          = scanCoordinator.startScan()
+    fun cancelScan()         = scanCoordinator.cancelScan()
+    fun startFreeformScan()  = scanCoordinator.startFreeformScan()
+    fun finishFreeformScan() = scanCoordinator.finishFreeformScan()
+    fun cancelFreeformScan() = scanCoordinator.cancelFreeformScan()
 
         /**
      * Load a user GLB asset from [uri] on the IO dispatcher, then rebuild [boneRetargeter].
@@ -1276,7 +912,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun stopRecordingAndExport() {
         router.isRecording = false
-        val scannedOffsets: Map<Int, com.arhand.util.Vec3>? = restJointPositions?.let { rjp ->
+        val scannedOffsets: Map<Int, com.arhand.util.Vec3>? = scanCoordinator.restJointPositions?.let { rjp ->
             buildMap {
                 for (jointIdx in 0 until BoneRetargeter.JOINT_COUNT) {
                     val base = jointIdx * 3

@@ -293,7 +293,27 @@ later. Bigger, more invasive, sequenced after Phases 0-7 land and are verified g
    moment both ran. Each caller now holds its own `BodyRetargeterState` field, so that's no
    longer possible regardless of what's decided about §10.1.
 5. **Decompose `AppViewModel` and `FusedDepthSource`** into smaller, single-responsibility
-   coordinators once 1-4 reduce how much cross-cutting state they need to hold directly.
+   coordinators once 1-4 reduce how much cross-cutting state they need to hold directly —
+   **started, scoped to one bounded extraction.** A full decomposition of either class is a
+   much larger undertaking than 1-4 combined, and this environment has no way to verify runtime
+   behavior beyond CI compilation (no device). Extracted `ScanCoordinator`
+   (`feature/scan/ScanCoordinator.kt`) — posed/freeform scan lifecycle orchestration
+   (`setScanLifecycle`, `startScan`/`cancelScan`/`startFreeformScan`/`finishFreeformScan`/
+   `cancelFreeformScan`, `processScan`/`processFreeformScan`, the scanner/freeform-scanner status
+   watchers, incremental neural-recon training, `restJointPositions`) out of `AppViewModel`,
+   which previously held all of it directly. Collaborators (`uiState`, `scanState`, `scanner`,
+   `router`, `spatialLayer`, etc.) are passed by reference, not re-owned — the same `MutableStateFlow`
+   instances `AppViewModel` and the UI layer already share, so this changes *where the logic
+   lives*, not the external API: `AppViewModel` keeps a one-line forwarding method per public
+   function (`startScan()`, `cancelScan()`, etc.), so `MainActivity`'s existing call sites are
+   unchanged. `toggleLiveMesh()`/`stopRecordingAndExport()` now read
+   `scanCoordinator.restJointPositions` instead of a field `AppViewModel` held directly.
+   Explicitly **not done**: `toggleDepth()`/`recalibrateOef()` stay in `AppViewModel` (genuinely
+   separate features that happen to touch the same `scanState`/`router`, not part of the
+   lifecycle this extraction owns), the per-hand-frame fused-depth/TSDF integration block stays
+   inline (tightly coupled to that collector's locals, not a standalone callable unit), and
+   `FusedDepthSource` itself is not decomposed — a second, separately-scoped extraction, not
+   attempted in this pass.
 
 Sequenced last because 1-4 are genuine redesigns of working code, higher risk, and only worth
 doing once the concrete bugs in Phases 0-7 are fixed and confirmed — redesigning underneath
