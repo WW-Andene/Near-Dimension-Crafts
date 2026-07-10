@@ -134,6 +134,19 @@ fun HandyApp(
     val depthMeshPositions by vm.depthMeshPositions.collectAsStateWithLifecycle()
     val processedHands     by vm.handPipeline.processed.collectAsStateWithLifecycle()
 
+    // ENGINE_ARCHITECTURE.md §9 — derive HudOverlay's hand-summary params via derivedStateOf
+    // instead of recomputing them inline in HandyApp's body on every processedHands emission
+    // (hand-inference rate). Compose already skips HudOverlay's own recomposition when these
+    // resolve to equal values frame-to-frame; derivedStateOf makes that explicit/guaranteed
+    // rather than relying on positional-parameter equality checks.
+    val landmarkCount by remember { derivedStateOf { processedHands.sumOf { it.landmarks.size } } }
+    val activeSlotsStr by remember {
+        derivedStateOf { processedHands.map { it.slotIndex }.sorted().joinToString(",").ifEmpty { "--" } }
+    }
+    val handSide by remember {
+        derivedStateOf { processedHands.firstOrNull()?.side ?: com.arhand.tracking.HandSide.UNKNOWN }
+    }
+
     // Hot-path flows — independent collection prevents full-tree recomposition
     val activeGesture         by vm.activeGesture.collectAsStateWithLifecycle()
     val photoStereoFrameCount by vm.photoStereoFrameCount.collectAsStateWithLifecycle()
@@ -227,12 +240,10 @@ fun HandyApp(
                 perf             = perfState,
                 renderMode       = uiState.renderMode.name,
                 torchOn          = uiState.torchOn,
-                landmarkCount    = processedHands.sumOf { it.landmarks.size },
-                activeSlots      = processedHands.map { it.slotIndex }.sorted()
-                                       .joinToString(",").ifEmpty { "--" },
+                landmarkCount    = landmarkCount,
+                activeSlots      = activeSlotsStr,
                 activeGesture    = activeGesture,
-                handSide         = processedHands.firstOrNull()?.side
-                                       ?: com.arhand.tracking.HandSide.UNKNOWN,
+                handSide         = handSide,
                 oscHealth        = oscHealthState,
                 spatialState     = spatialState,
                 slCalibProgress  = if (scanDomainState.depthMode)

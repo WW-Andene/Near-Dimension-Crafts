@@ -251,6 +251,19 @@ class OscReceiver {
     }
 
     /**
+     * ENGINE_ARCHITECTURE.md §8.3 — parsed floats build a [Quaternion] directly with no
+     * NaN/Inf guard or normalization, unlike [BoneRetargeter]'s own quaternions (always
+     * unit-length via `shortestArcQuaternion`). A malformed or adversarial remote sender
+     * could otherwise push a non-unit or NaN quaternion straight to
+     * `renderer.latestRetargetResult`. Returns null (reject) for non-finite input rather
+     * than normalizing garbage into something that merely looks valid.
+     */
+    private fun sanitizeQuaternion(qx: Float, qy: Float, qz: Float, qw: Float): Quaternion? {
+        if (!qx.isFinite() || !qy.isFinite() || !qz.isFinite() || !qw.isFinite()) return null
+        return Quaternion(qx, qy, qz, qw).normalized()
+    }
+
+    /**
      * Parse a single OSC message starting at [offset] in [data] with [size] bytes.
      * Detected joint rotations are put into [rotations]; wrist position triggers [onWristPos].
      */
@@ -281,7 +294,7 @@ class OscReceiver {
                 val joint = HANDY_NAME_TO_JOINT[jointName] ?: return
                 if (bb.remaining() < 16) return
                 val qx = bb.float; val qy = bb.float; val qz = bb.float; val qw = bb.float
-                rotations[joint] = Quaternion(qx, qy, qz, qw)
+                sanitizeQuaternion(qx, qy, qz, qw)?.let { rotations[joint] = it }
             }
 
             // ── HANDY_DEFAULT: /hand/wrist/position  ,fff  x y z ─────────────
@@ -296,7 +309,7 @@ class OscReceiver {
                 if (bb.remaining() < 16) return
                 val joint = VMC_NAME_TO_JOINT[boneName] ?: return
                 val qx = bb.float; val qy = bb.float; val qz = bb.float; val qw = bb.float
-                rotations[joint] = Quaternion(qx, qy, qz, qw)
+                sanitizeQuaternion(qx, qy, qz, qw)?.let { rotations[joint] = it }
             }
 
             // ── VMC wrist position: /VMC/Ext/Bon/Pos  ,sfff  boneName x y z ──

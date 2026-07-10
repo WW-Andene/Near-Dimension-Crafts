@@ -409,6 +409,20 @@ Triggered by direct user reports after Phase 8 shipped, not by a pre-existing
    architecture question was actually asking about — not a missing throttle or a wrong default,
    but a shared-resource design that silently failed under its own real (two-consumer) usage
    pattern.
+8. **BVH hard identity-pose snap on occlusion grace expiry (§8.1)** — held at last-known
+   rotation indefinitely instead of dropping the joint from the result once grace expires, so
+   BVH export no longer double-snaps (freeze → identity teleport → real-rotation teleport).
+9. **OSC-receive quaternion validation (§8.3)** — added `OscReceiver.sanitizeQuaternion()`,
+   rejecting non-finite components and normalizing otherwise, at both quaternion parse sites.
+   The separate VMC address-naming question in the same finding needs external protocol
+   verification and stays open, per that finding's own caution.
+10. **HUD-derivation recomposition (§9, partial)** — wrapped `HandyApp`'s three `HudOverlay`
+    derivations in `derivedStateOf`. Honest caveat: these are O(≤2) computations Compose was
+    likely already skipping recomposition for via stable-parameter equality — applied per the
+    finding's own recommendation, but its practical impact here is probably small. The larger
+    part of §9 (the ~1000-line composable body re-executing in full, `ModelViewerScreen`'s
+    viewer-scoped recomposition) is a bigger restructuring not attempted — too much regression
+    risk with no way to visually verify the result from this environment.
 
 ## Recommended order
 

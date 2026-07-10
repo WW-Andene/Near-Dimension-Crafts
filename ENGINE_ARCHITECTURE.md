@@ -502,7 +502,7 @@ cheap insurance, (b) fixes the actual reachable scenario.
 
 ## 8. Export correctness
 
-### 8.1 BVH's fixed joint hierarchy forces a hard identity-pose snap when an occluded joint's grace period expires
+### 8.1 BVH's fixed joint hierarchy forces a hard identity-pose snap when an occluded joint's grace period expires — DONE
 
 `BodyRetargeter.kt:165-234` holds an occluded joint at `lastGoodRotation` during its grace
 period, then drops it from the result entirely once grace expires. `MotionRecorder.writeBvhMotion`
@@ -537,7 +537,7 @@ path for that use case. (b) Resample/interpolate frames onto a uniform grid at e
 this as a known BVH-format limitation rather than "fix" it — pushing users toward GLB export
 when frame-timing precision matters is the more honest answer than a partial resampling fix.
 
-### 8.3 OSC-receive quaternions aren't validated before reaching the renderer (contained, doesn't reach export)
+### 8.3 OSC-receive quaternions aren't validated before reaching the renderer (contained, doesn't reach export) — DONE (normalization half only)
 
 `OscReceiver`'s bounds-checking on packet parsing is solid (verified), but parsed floats build
 `Quaternion(qx,qy,qz,qw)` directly with no normalization or NaN/Inf guard, unlike
@@ -557,7 +557,13 @@ VMC address-constant inconsistency against the actual VMC protocol spec or a rea
 sender before deciding whether it's a real interop bug or intentional — needs external
 verification this environment can't provide.
 
-## 9. UI layer: recomposition cost (structural, not a correctness bug)
+**Implemented (a)**: added `OscReceiver.sanitizeQuaternion()` — rejects (returns null, joint
+untouched) any parsed quaternion with a non-finite (NaN/Inf) component, otherwise normalizes it,
+applied at both quaternion-parsing call sites. **(b) still open** — the VMC naming question
+needs external protocol/sender verification this environment can't provide, left as-is per the
+doc's own caution rather than guessed at.
+
+## 9. UI layer: recomposition cost (structural, not a correctness bug) — DONE (HUD-derivation half only)
 
 `MainActivity`'s top-level composable collects `handPipeline.processed` directly (up to
 hand-inference rate) to derive HUD values, re-running the ~1000-line composable body's
@@ -572,6 +578,21 @@ every collected emission. (b) Leave as-is if profiling shows the derivation cost
 next to child-composable skip already happening — unverified without a device. Recommended: (a)
 is cheap to try; worth doing given how many other findings in this document turned out to be
 "assumed fine, wasn't" — this one hasn't been assumed, it's just unmeasured.
+
+**Implemented (a)** for `HandyApp`'s three `HudOverlay` derivations (`landmarkCount`,
+`activeSlots`, `handSide`) via `derivedStateOf`. Honest caveat found while implementing: these
+three derivations are each O(≤2) (at most 2 tracked hands) — `sumOf`/`map.sorted().joinToString`/
+`firstOrNull` are not themselves expensive, and `HudOverlay`'s parameters are already stable
+primitives (Int/String), so Compose's existing positional-parameter equality check was already
+skipping `HudOverlay`'s own recomposition when these resolved to the same value frame-to-frame.
+`derivedStateOf` makes that guarantee explicit rather than incidental, but its practical impact
+here is likely small — this specific instance was never the "unmemoized derivation is
+expensive" case the finding worried about, just an unmeasured one that turned out cheap. The
+larger, unaddressed part of this finding — `HandyApp`'s ~1000-line composable body re-executing
+in full on every `processedHands` emission, and `ModelViewerScreen`'s viewer-open-scoped
+recomposition — is a much bigger restructuring this pass didn't attempt (splitting a large,
+visually load-bearing composable apart carries real regression risk with no way to visually
+verify the result in this environment).
 
 ## 10. Incomplete/disconnected features — do not delete without a product decision
 

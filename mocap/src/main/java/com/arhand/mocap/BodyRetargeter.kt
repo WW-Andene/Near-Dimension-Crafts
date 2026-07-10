@@ -227,16 +227,18 @@ object BodyRetargeter {
                 lastGoodRotation[seg.joint]       = smoothed
 
             } else {
-                // BODY-4 — Below threshold: grace period or drop
+                // BODY-4 — Below threshold: hold at last-known rotation.
+                // ENGINE_ARCHITECTURE.md §8.1 — grace expiry used to omit the joint from
+                // the result entirely; BVH export has no "joint absent this frame" concept
+                // and fills missing joints with Quaternion.IDENTITY, so the exported motion
+                // held at last-known during grace, then hard-snapped to identity the instant
+                // grace expired, then snapped again back to the real rotation on reacquisition
+                // — a double-discontinuity artifact. Holding at lastGoodRotation indefinitely
+                // (until the joint is next confidently visible) reads as "occluded, tracking
+                // paused" instead, which is both truer and visually smoother.
                 val grace = graceRemaining.getOrDefault(seg.joint, 0)
-                if (grace > 0) {
-                    graceRemaining[seg.joint] = grace - 1
-                    lastGoodRotation[seg.joint]?.let { joints[seg.joint] = it }
-                } else {
-                    // Grace expired — joint absent from result; receiver uses T-pose
-                    graceRemaining[seg.joint] = 0
-                    // Do NOT add to joints map
-                }
+                if (grace > 0) graceRemaining[seg.joint] = grace - 1
+                lastGoodRotation[seg.joint]?.let { joints[seg.joint] = it }
             }
         }
 
