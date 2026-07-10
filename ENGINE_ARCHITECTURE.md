@@ -1085,6 +1085,24 @@ Not verified on-device (no device access in this environment) — the exposure-t
 dark-mode hysteresis thresholds, and the enhancement's actual effect on MediaPipe's confidence are
 all reasoned from queried sensor capabilities and the prototype's own values, not measured.
 
+### 17.3a Non-blinding "another way" to approximate multi-frame stacking's benefit — DONE
+
+Directly requested after the user rejected auto-torch ("blinding light in the eyes of the user is
+not an option") as the fix for §17.3's deferred multi-frame-stacking gap: added continuous
+temporal noise averaging (`LowLightEnhancer.accumulateTemporal`) instead of the prototype's
+stack-then-flush model. Rather than blocking every output on N frames of integration time (the
+exact added-latency problem §17.1 fixed once already), this runs a per-pixel exponential moving
+average over luma that's always immediately usable and gets cleaner the longer the scene holds
+still. It reuses `HandPipeline.motionMag`/`MOTION_GATE_THRESHOLD` — the same stillness signal
+`FrameThrottler` already computes for its own idle-shedding — so it needed no new sensor or
+heuristic: while still, frames blend in slowly (real noise-reduction gain, and this is exactly
+when `FrameThrottler` is already skipping most inference anyway, so the averaging effectively
+spends otherwise-idle cycles); the instant motion resumes, the accumulator snaps straight to the
+current frame with zero blending, so a moving hand never picks up motion blur from this. This is
+a smaller win than true multi-frame stacking (no motion-compensated alignment, so it only helps
+during genuine stillness, not a moving low-light scene) but needs no light source and adds no
+latency — a real, if partial, answer to "another way."
+
 ### 17.4 `FrameThrottler`'s idle-doubling had a real feedback bug: once doubled, it could never recover to the true GPU-justified rate — DONE
 
 Found from a direct on-device HUD screenshot showing `INF 9.6ms` (fast — well under the 20ms

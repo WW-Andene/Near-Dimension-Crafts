@@ -325,8 +325,12 @@ class SpatialFrameProducer(
         // ENGINE_ARCHITECTURE.md §17.3 — the actual (expensive) enhancement pass only runs on
         // frames that reach here, i.e. at MediaPipe's own inference rate, not full camera rate —
         // see the note above the throttle gate for why. detectionBitmap is just `bitmap` itself
-        // (no copy, no cost) whenever dark-mode isn't active.
-        val detectionBitmap = if (dark) lowLightEnhancer.enhance(bitmap) else bitmap
+        // (no copy, no cost) whenever dark-mode isn't active. isStill reuses the same motion
+        // signal FrameThrottler's own idle detection uses, gating LowLightEnhancer's temporal
+        // noise averaging — see that class's doc for why this is the non-flash "another way" to
+        // improve near-dark detection without adding stacking's latency cost.
+        val isStill = handPipeline.motionMag.value < HandPipeline.MOTION_GATE_THRESHOLD
+        val detectionBitmap = if (dark) lowLightEnhancer.enhance(bitmap, isStill) else bitmap
 
         // Hand inference
         trackerMgr?.detect(detectionBitmap, ts)

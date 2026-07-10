@@ -530,6 +530,14 @@ fixes. Not verified on-device — exposure bounds, hysteresis thresholds, and ac
 MediaPipe confidence are reasoned from queried sensor capabilities and the prototype's own values,
 not measured.
 
+**Follow-up (§17.3a)**: asked for auto-torch as the fix for the deferred multi-frame-stacking gap;
+user rejected it ("blinding light in the eyes of the user is not an option"). Implemented continuous
+temporal noise averaging instead (`LowLightEnhancer.accumulateTemporal`) — a per-pixel EMA over
+luma, gated by the same stillness signal `FrameThrottler` already computes, that never blocks
+waiting for a frame stack to fill and snaps instantly to the current frame the moment motion
+resumes (no motion blur). Smaller win than true motion-compensated stacking, but needs no light
+source and adds no latency.
+
 ## Phase 13 — §17.4: found and fixed a real FrameThrottler feedback bug from an on-device screenshot — DONE
 
 Directly triggered by a user-provided screenshot showing the app's own diagnostic HUD: `INF 9.6ms`

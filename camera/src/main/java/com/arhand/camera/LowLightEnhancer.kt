@@ -32,14 +32,20 @@ import kotlin.math.pow
  *    a plausible colour image instead of degrading to grayscale — the same design choice
  *    `CLAHEAnalyzer`'s own doc comment already describes ("processes luminance only... leaves
  *    Cr/Cb unchanged") but, unlike that class, actually carried through to a real output bitmap.
- *  - **No multi-frame stacking.** The prototype's single biggest low-light win is temporal
- *    integration (6-48 frame stacking with motion alignment) — but that trades added latency for
- *    signal, directly working against the frame-lag fixes already shipped for this pipeline
- *    (ENGINE_ARCHITECTURE.md §17.1: this session *removed* exactly this class of added delay from
- *    the live tracking path). Deliberately left out of the real-time path here. If a genuinely
- *    darker capability is wanted later, it belongs in a separate still-capture mode (e.g. a
- *    dedicated "night snapshot" affordance) that can afford the integration time, not the live
- *    per-frame detection feed.
+ *  - **Non-blocking temporal noise averaging instead of the prototype's stack-then-flush
+ *    model.** The prototype's biggest low-light win is multi-frame stacking (6-48 frames,
+ *    motion-aligned, gate ready only once the whole stack completes) — real signal gain, but it
+ *    makes every output wait for N frames of integration time, which is exactly the class of
+ *    added latency ENGINE_ARCHITECTURE.md §17.1 removed from this pipeline. The user
+ *    specifically asked for a non-flash way to improve on this, so [accumulateTemporal] instead
+ *    runs a continuous exponential moving average over luma — every frame immediately has a
+ *    usable (increasingly clean) result, nothing ever blocks waiting for a stack to fill. It
+ *    reuses the same motion signal [com.arhand.tracking.HandPipeline]/`FrameThrottler` already
+ *    compute for idle detection: while the scene is still, frames blend in slowly (real
+ *    noise-averaging gain); the instant motion resumes, the accumulator snaps to the current
+ *    frame with no blending at all, so a moving hand never sees motion blur from this. Since a
+ *    still scene is also when `FrameThrottler` is already skipping most inference calls, this
+ *    averaging effectively uses those otherwise-idle cycles rather than costing extra ones.
  *
  * Not thread-confined by itself, but not designed for concurrent calls either — callers (this
  * app calls it from [com.arhand.feature.spatial.SpatialFrameProducer]'s single per-frame
@@ -66,6 +72,14 @@ class LowLightEnhancer {
         const val USM_STRENGTH   = 0.5f
         const val HOT_PIXEL_DELTA = 30
 
+        /**
+         * Blend rate for [accumulateTemporal] while the scene is still (0-1; lower = more
+         * averaging/noise reduction, slower to reflect a genuinely new scene). Not used at all
+         * while motion is above the same threshold `HandPipeline`/`FrameThrottler` use for idle
+         * detection — see the class doc.
+         */
+        const val TEMPORAL_ALPHA_STILL = 0.2f
+
         // Sample size for the cheap mean-luminance gate. Small and fixed so this costs
         // effectively nothing to call every frame, unlike [enhance] itself.
         private const val SAMPLE_W = 80
@@ -90,6 +104,10 @@ class LowLightEnhancer {
     private var cbPlane = IntArray(0)
     private var crPlane = IntArray(0)
     private val samplePixels = IntArray(SAMPLE_W * SAMPLE_H)
+
+    // Running per-pixel luma average for accumulateTemporal() — sized/reset in ensureSized().
+    private var accumY = FloatArray(0)
+    private var temporalOut = IntArray(0)
 
     /**
      * Cheap mean-luminance sample on a small downscaled copy of [bitmap]. Call every frame —
@@ -123,12 +141,17 @@ class LowLightEnhancer {
     fun isDarkMode(): Boolean = isDark
 
     /**
-     * Apply hot-pixel suppression + multi-scale CLAHE + gamma lift + unsharp mask to [bitmap]'s
-     * luminance, preserving its chrominance, and return a new enhanced [Bitmap]. Callers should
-     * only call this when [isDarkMode] is true — it always does the full-cost work when called,
-     * it does not re-check darkness itself.
+     * Apply temporal noise averaging (see class doc) + hot-pixel suppression + multi-scale
+     * CLAHE + gamma lift + unsharp mask to [bitmap]'s luminance, preserving its chrominance, and
+     * return a new enhanced [Bitmap]. Callers should only call this when [isDarkMode] is true —
+     * it always does the full-cost work when called, it does not re-check darkness itself.
+     *
+     * @param isStill Same stillness signal `HandPipeline`/`FrameThrottler` use for idle
+     *                detection (e.g. `handPipeline.motionMag.value < HandPipeline.MOTION_GATE_THRESHOLD`).
+     *                Gates [accumulateTemporal] — pass `false` if no motion signal is available,
+     *                which just disables the extra averaging (equivalent to before this existed).
      */
-    fun enhance(bitmap: Bitmap): Bitmap {
+    fun enhance(bitmap: Bitmap, isStill: Boolean): Bitmap {
         ensureSized(bitmap.width, bitmap.height)
         bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
 
@@ -141,7 +164,8 @@ class LowLightEnhancer {
             crPlane[i] = (0.5f * r - 0.418688f * g - 0.081312f * b + 128f).toInt().coerceIn(0, 255)
         }
 
-        val denoised = suppressHotPixels(yPlane, w, h)
+        val temporal = accumulateTemporal(yPlane, isStill)
+        val denoised = suppressHotPixels(temporal, w, h)
         val equalised = multiScaleClahe(denoised, w, h)
         val lifted = applyGamma(equalised, GAMMA_DARK)
         val sharpened = unsharpMask(lifted, w, h, USM_STRENGTH)
@@ -171,6 +195,26 @@ class LowLightEnhancer {
         yPlane  = IntArray(n)
         cbPlane = IntArray(n)
         crPlane = IntArray(n)
+        accumY      = FloatArray(0)   // force re-seed on the next accumulateTemporal() call
+        temporalOut = IntArray(n)
+    }
+
+    /**
+     * Continuous temporal noise averaging over luma — see the class doc for why this replaces
+     * the prototype's stack-then-flush model. While [isStill], blends this frame into a running
+     * average at [TEMPORAL_ALPHA_STILL]; the instant motion resumes, the accumulator snaps
+     * straight to the current frame (no blending, no motion blur).
+     */
+    private fun accumulateTemporal(luma: IntArray, isStill: Boolean): IntArray {
+        if (accumY.size != luma.size) {
+            accumY = FloatArray(luma.size) { luma[it].toFloat() }
+        } else if (!isStill) {
+            for (i in luma.indices) accumY[i] = luma[i].toFloat()
+        } else {
+            for (i in luma.indices) accumY[i] += TEMPORAL_ALPHA_STILL * (luma[i] - accumY[i])
+        }
+        for (i in accumY.indices) temporalOut[i] = accumY[i].toInt().coerceIn(0, 255)
+        return temporalOut
     }
 
     /**
