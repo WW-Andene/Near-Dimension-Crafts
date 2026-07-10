@@ -128,39 +128,64 @@ load, each collector can miss different frames — meaning the background camera
 sees and the depth/tracking data computed for "the current frame" are not guaranteed to be the
 same physical camera frame.
 
-## 3. Confirmed dead/orphaned code (not bugs at runtime, but the same failure shape: intent left behind without cleanup)
+## 3. Incomplete/disconnected features — corrected from an earlier "dead code" misclassification
 
-### 3.1 `AppViewModel.ensureFullBodyCollector()` is never called
+**These are not dead code and must not be deleted.** An earlier version of this document (and
+my own first read of them) called §3.1/§3.2 "dead/orphaned code" — wrong. Re-reading each one's
+own doc comments and the surrounding design (guard-flag patterns, a UI toggle already wired to
+a working render path, a classifier overload built specifically to consume one of these) showed
+they are fully- or mostly-built features missing one connection, not leftover cruft. See §5 for
+the rule this changes going forward.
 
-Corrects §0. Since nothing calls it: `latestFullBodyFrame` and `latestBodyRetargetResult` are
-permanently `null`. Concrete effects of that:
-- `bodyWristHint`/`bodyWristVis` in `AppViewModel`'s own OSC-velocity/live-mesh retarget path
-  (`AppViewModel.kt:408-418`) always read `null` from `latestBodyRetargetResult.value` —
-  silently never applies body-wrist alignment on that path, regardless of whether body tracking
-  is actually running (live, correctly, through `SpatialFrameProducer`'s own internal collector).
-- `perfMonitor.updateQuality(body = ...)` (`AppViewModel.kt:449`) always reports `0f` body
-  confidence to the HUD, independent of real body-tracking state.
-- `CompositeGestureClassifier.classify(frame: FullBodyFrame, slot: Int)` — the overload shaped
-  to consume `latestFullBodyFrame` — is never called anywhere; the only live gesture-classify
-  call site uses the other overload (`classify(gesture, faceExpressions)`,
-  `AppViewModel.kt:1419`). If full-body-context gesture classification was intended to work,
-  it currently does not.
+### 3.1 `AppViewModel.ensureFullBodyCollector()` is built but never started — one call site short of working
 
-### 3.2 `renderer.scanCloudPoints` has no writer anywhere in the repo
+`fullBodyCollectorStarted` (a guard flag, `AppViewModel.kt:1326`) and the function's own name
+("ensure...") are the standard shape for a lazily-started, idempotent collector meant to be
+triggered from more than one entry point. `enableBodyTracking()`'s doc comment
+(`AppViewModel.kt:1362-1366`) explicitly promises: *"Body landmarks are merged into
+`[latestFullBodyFrame]` every hand-pipeline frame"* — but `enableBodyTracking()`'s body
+(`AppViewModel.kt:1368-1372`) never calls `ensureFullBodyCollector()`. The feature this builds —
+`FullBodyFrame` merging pose+face+both hands, feeding
+`CompositeGestureClassifier.classify(FullBodyFrame, slot: Int)`, an overload built specifically
+for it and otherwise unused — was designed and implemented and is missing exactly the call that
+starts it. Concrete effect of the gap: `bodyWristHint` in `AppViewModel`'s own OSC-velocity/
+live-mesh path always reads `null`, `perfMonitor`'s body-confidence HUD metric is always `0f`,
+and full-body-context gesture classification never runs — not because these don't work, but
+because they're never started.
 
-Read at `ARRenderer.kt:260-263` (`onDrawFrame`), never written — dead field, always empty.
+**Open product question, not a technical one**: is full-body-context gesture classification
+still wanted? If yes, the fix is adding the missing call (and resolving the shared-`BodyRetargeter`-instance
+question from the prior draft — `SpatialFrameProducer` already retargets body independently, so
+starting this collector too would reintroduce a live version of that double-invocation, meaning
+the actual fix is likely "point this collector at the producer's own `_latestBodyResult` output
+instead of calling `.retarget()` again," not just adding the missing call verbatim). If no, that's
+a deliberate call to make and document, not something to silently delete as unused.
 
-### 3.3 `SpatialFrameRouter`'s posed-scan capture branch is currently unreachable
+### 3.2 `renderer.scanCloudPoints` — a working, wired UI toggle with no data feed
 
-`route()`'s `capturedFrames`/`biometricFrames` append (`SpatialFrameRouter.kt:213-223`) is
-gated on `isScanActive && !isFreeformActive` — but `router.isScanActive` is only ever set
-`true` together with `router.isFreeformActive` (always both, never `isScanActive` alone for a
-plain posed scan). So this branch never fires today; `AppViewModel.kt:475-480` is the sole
-active writer of those same lists (they're literally the same `MutableList` objects, exposed
-via delegate properties). Latent: if a future change sets `isScanActive` independently for
-posed scans (a reasonable-looking fix on its own), both would start appending to the same list
-— a new instance of §2.1's shape, introduced by someone fixing something else without knowing
-this branch exists.
+`ARRenderer.showCloud` is toggled live from `AppViewModel.kt:763` and gates a fully functional
+render path (`ARRenderer.kt:259-263`: `depthCloudRenderer.updateAndDraw(...)`) — the toggle and
+the renderer both work. Nothing anywhere populates `scanCloudPoints` itself, so the toggle
+currently does nothing visible. This reads as a live point-cloud preview feature (likely meant
+to sample `spatialLayer.fusedDepth.store.snapshot()`, the same source `AppViewModel`'s scan-capture
+code already reads) that had its render half built and its data-feed half never connected —
+same shape as §3.1, same rule: finish it or make a deliberate call to retire the toggle, don't
+delete the renderer path as "unused."
+
+### 3.3 `SpatialFrameRouter`'s posed-scan capture branch — an asymmetric migration, not dead weight
+
+Different shape again. `route()`'s `capturedFrames`/`biometricFrames` append
+(`SpatialFrameRouter.kt:213-223`) is gated on `isScanActive && !isFreeformActive`, but
+`startScan()` (posed scans, `AppViewModel.kt:820-887`) never touches `router.isScanActive` at
+all — it manages capture entirely inline, the same way the codebase apparently worked before
+`SpatialFrameRouter` existed. `startFreeformScan()` sets `router.isScanActive`/`isFreeformActive`
+*and* still runs its own inline capture — meaning freeform scanning was migrated to the router
+but its old inline path was never removed (this is §2.1's live bug), while posed scanning was
+simply never migrated at all. Read together, the consistent fix for both is the same move: make
+`SpatialFrameRouter` the single owner of capture for *both* scan types — wire `isScanActive` in
+`startScan()` too, then delete `AppViewModel`'s inline capture for both posed and freeform. Not
+"delete the router's dead branch" — the router's branch is the correct future state; the inline
+paths are what should go, once actually verified equivalent.
 
 ### 3.4 `renderer.latestRetargetResult` has two legitimate writers, mode-gated (not a bug, but worth naming explicitly so it isn't "fixed" into one)
 
@@ -178,10 +203,46 @@ doesn't collapse this into a bug that isn't one.
 §2 and §3 are the current, checked list of where the codebase violates or has drifted from
 this rule. This list is a snapshot from this research pass — treat any future mismatch between
 this document and the code as a bug in whichever one is behind, not something to leave silently
-drifting (that drift is what produced §3's dead code and the stale doc comments found earlier
-this session).
+drifting (that drift is what produced §3's disconnected features and the stale doc comments
+found earlier this session).
 
-## 5. Concurrency contract (kept, still accurate)
+## 5. Standing rule: nothing gets deleted without a second, independent review pass
+
+Added after nearly misclassifying §3.1/§3.2 as safe-to-delete dead code on first read. Applies
+to every future change in this codebase, no exceptions:
+
+Before deleting anything because "nothing calls this" or "this looks unused":
+1. **Check what else the file/symbol carries.** A thing can look dead by one measure (an
+   unused function) while the same file holds something load-bearing (a shared constant, a
+   type used elsewhere) — see §5.1 for the confirmed case this already happened.
+2. **Check whether "nothing calls this" means "abandoned" or "not wired up yet."** Read the
+   candidate's own doc comments and naming (guard flags, "ensure"/"lazy" naming, TODO markers)
+   for evidence it was designed to be called from somewhere that never got written — see §3.1,
+   §3.2 for two cases just caught this way.
+3. Only after both checks pass does "delete" become the answer instead of "finish" or
+   "deliberately retire, on purpose, out loud."
+
+### 5.1 Historical case where this rule would have caught a real regression: `ControlPanel.kt`
+
+Earlier this session, `ControlPanel.kt` was deleted as dead code because its composable
+functions (`ControlPanel`, `OscPanel`, `CtrlButton`) had no callers. The same file also defined
+shared color constants (`UIBg`, `Plasma`, `Warn`) imported by roughly 10 other files. Deleting
+the file broke the build; CI caught it, and the fix was creating a new `Colors.kt` to hold the
+constants. This is exactly rule 1 above, after the fact — the composables were genuinely
+unused, but the file wasn't only the composables. No new evidence needed for this one; it's a
+confirmed historical event on record. Cited here as the standing case study for why rule 1
+exists, and as an admission that this document's own methodology wasn't always this careful
+before this pass.
+
+### 5.2 The ~21k-line "duplicate app-module code" deletion — flagged, not yet independently re-verified
+
+Earlier in this session, a large deletion (~21k lines, described at the time as duplicate/dead
+app-module code, claimed "verified no orphaned symbols") happened before the context window
+this document's research passes had direct access to. Unlike §5.1, this has not been
+independently re-checked against §5's rule. It is flagged here as open, not as confirmed-safe
+or confirmed-unsafe — an honest "don't know yet," pending the audit requested for this pass.
+
+## 6. Concurrency contract (kept, still accurate)
 
 | Work category | Dispatcher | Rationale |
 |---|---|---|
@@ -190,23 +251,25 @@ this session).
 | Core depth-fusion channels (DA2, SLAM, stereo, RS-stereo, PSP) | `Dispatchers.Default` | Appropriate for CPU-bound batch work, but see §2.6-2.7 for cross-consumer correlation gaps this sharing introduces |
 | Frame routing to renderer/OSC/motion-capture (`SpatialFrameRouter`) | Dedicated single thread (fixed this session) | Latency-sensitive; must not share a pool with unbounded CPU-bound work |
 
-## 6. Degradation contract (kept, still verified)
+## 7. Degradation contract (kept, still verified)
 
 Every depth/tracking source follows the same `isAvailable`-checked-by-every-consumer shape:
 `StereoDepthSource`, `DepthAnythingSource`, ARCore (`FusedDepthSource.kt:376`, falls back to
 "SfM+Photo only"), and MediaPipe's GPU→CPU delegate fallback. Consistent, load-bearing —
 follow it for any new source.
 
-## 7. Verification & enforcement
+## 8. Verification & enforcement
 
 1. **Instance/call-site counts**, re-runnable any time:
-   - `grep -rn "BoneRetargeter(\|BodyRetargeter("` — expect the counts in §2 of the prior
-     research (2 legitimate `BoneRetargeter` owners + 1 test; exactly 1 `BodyRetargeter`
-     construction, shared by a live writer and a dead one).
+   - `grep -rn "BoneRetargeter(\|BodyRetargeter("` — expect the counts in §3.1's research (2
+     legitimate `BoneRetargeter` owners + 1 test; exactly 1 `BodyRetargeter` construction,
+     shared by `SpatialFrameProducer`'s live collector and `ensureFullBodyCollector`'s
+     currently-unstarted one — see §3.1, this is a disconnected feature, not a live double-call).
    - `grep -rn "freeformScanner.update\|scanner.update"` — currently 2 and 1 call sites
      respectively; the freeform count should become 1 once §2.1 is fixed.
-   - `grep -rn "ensureFullBodyCollector"` — currently definition-only; either call it or
-     delete it, don't leave it defined-but-unreferenced.
+   - `grep -rn "ensureFullBodyCollector"` — currently definition-only; per §3.1/§5, resolve by
+     either wiring it up (if the feature is wanted) or retiring it deliberately — not by deleting
+     it as unused without that decision being made first.
 2. **CI is compile-only.** Every claim above was verified by reading method bodies and tracing
    call sites directly (three parallel research passes, cross-checked against each other and
    against this document's own prior, partially-incorrect claims) — not by assumption, and not
@@ -216,7 +279,7 @@ follow it for any new source.
    frame mismatch) can only be confirmed by testing on a real device — no physical device is
    available in this environment.
 
-## 8. Explicitly out of scope
+## 9. Explicitly out of scope
 
 - Device-specific tuning (NNAPI/GPU-delegate speculation, resolution/quality downgrades) — the
   NNAPI attempt this session regressed both performance and accuracy and was reverted.
