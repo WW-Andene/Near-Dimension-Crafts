@@ -346,64 +346,54 @@ class SpatialLayer(private val context: Context) {
     // ── World-frame anchor ────────────────────────────────────────────────────
 
     /**
-     * GAP-1 — Compute the metric world-space position of a MediaPipe hand landmark
-     * using the live ARCore camera-to-world transform.
+     * ENGINE_ARCHITECTURE.md §4.11 — correct per-landmark world position.
      *
-     * MediaPipe world landmarks are in metres, hand-geometric-centre origin, camera frame.
-     * ARCore provides the camera-to-world quaternion via [ArCoreDepthSource.lastCamQ*].
-     * This method applies the full quaternion rotation then adds the camera world position,
-     * correctly handling any device orientation (tilted, angled, upside-down).
+     * This replaces the old GAP-1 `toWorldSpace(mediaPipeWorldX/Y/Z)` (deleted): that method
+     * rotated MediaPipe's *world* landmark (metres, but re-centred to the hand's own
+     * geometric centroid every frame — see `HandTracker.kt`'s own doc comment) by the
+     * camera's rotation and added it to the camera's world position, treating a
+     * hand-relative offset as if it were a camera-relative one. It had zero callers and,
+     * per §4.11's analysis, could not have worked: MediaPipe discards the hand's actual
+     * distance from the camera when it re-centres world landmarks, so there was no
+     * translation left to recover by composing a pose onto them.
      *
-     * When ARCore is not tracking ([isGrounded] = false), returns the raw MediaPipe
-     * world position (camera-relative, approximately metric via sfmScale).
+     * The correct fix goes back to *before* that re-centring: it takes the landmark's own
+     * normalised 2D pixel position plus a real measured camera-space depth at that pixel
+     * (DA2's XR-calibrated dense map — the same source [sampleDenseDepthAtLandmark] reads,
+     * but only trusted here once [DepthAnythingSource.isMetricCalibrated] is true), unprojects
+     * through the camera's real intrinsics into camera space, then transforms by the camera's
+     * live ARCore pose — exactly the same unprojection [ArCoreDepthSource.onDrawFrame] already
+     * performs per-pixel for its own depth cloud, just evaluated at one landmark's pixel
+     * instead of a dense grid. That keeps this landmark's result in the *same* coordinate
+     * frame [com.arhand.util.PointCloudStore]'s ARCore/SfM cloud is already in, which is what
+     * callers like [HandSegmentationMask.buildHullMetric] actually need to cross-reference
+     * against it.
      *
-     * @param mediaPipeWorldX  MediaPipe worldX in metres (hand-centre origin, camera frame)
-     * @param mediaPipeWorldY  MediaPipe worldY in metres
-     * @param mediaPipeWorldZ  MediaPipe worldZ in metres
-     * @return Vec3 in ARCore world space (metres, gravity-aligned Y-up)
+     * @return world-space position in metres (ARCore's world frame), or null when metric
+     *         depth isn't currently available (not tracking, or DA2 hasn't XR-calibrated
+     *         yet) — callers must have a fallback for that case (e.g. skip hull filtering
+     *         rather than silently using a wrong frame).
      */
-    fun toWorldSpace(
-        mediaPipeWorldX: Float,
-        mediaPipeWorldY: Float,
-        mediaPipeWorldZ: Float
-    ): Vec3 {
-        val s = _state.value
-        if (!s.isGrounded) {
-            return Vec3(mediaPipeWorldX, mediaPipeWorldY, mediaPipeWorldZ)
-        }
+    fun unprojectLandmarkToWorld(normX: Float, normY: Float): Vec3? {
+        val arcore = fusedDepth.arcore
+        val pose   = arcore.lastPose ?: return null
+        if (arcore.lastFx.isNaN() || arcore.lastImgW <= 0) return null
 
-        // GAP-1: Full quaternion rotation. ARCore pose quaternion (x,y,z,w) rotates
-        // camera-frame vectors into world frame. Apply q * v * q⁻¹:
-        val qx = fusedDepth.arcore.lastCamQX
-        val qy = fusedDepth.arcore.lastCamQY
-        val qz = fusedDepth.arcore.lastCamQZ
-        val qw = fusedDepth.arcore.lastCamQW
+        val da2 = fusedDepth.da2
+        if (!da2.isMetricCalibrated) return null
+        val denseMap = da2.denseDepth ?: return null
 
-        if (qw.isNaN()) {
-            // Quaternion not yet available — fall back to additive model
-            return Vec3(
-                s.cameraWorldX + mediaPipeWorldX,
-                s.cameraWorldY + mediaPipeWorldY,
-                s.cameraWorldZ + mediaPipeWorldZ
-            )
-        }
+        val depthM = sampleDenseDepthAtLandmark(normX, normY, denseMap)
+        if (depthM.isNaN() || depthM <= 0f) return null
 
-        // Hamilton product: rotated = q * v * q⁻¹
-        val vx = mediaPipeWorldX; val vy = mediaPipeWorldY; val vz = mediaPipeWorldZ
-        // q * v (treat v as pure quaternion)
-        val tx = qw*vx + qy*vz - qz*vy
-        val ty = qw*vy + qz*vx - qx*vz
-        val tz = qw*vz + qx*vy - qy*vx
-        val tw = -qx*vx - qy*vy - qz*vz
-        // (q * v) * q⁻¹  (q⁻¹ = -qx,-qy,-qz,qw for unit quaternion)
-        val rx = tx*qw + tw*(-qx) + ty*(-qz) - tz*(-qy)
-        val ry = ty*qw + tw*(-qy) + tz*(-qx) - tx*(-qz)
-        val rz = tz*qw + tw*(-qz) + tx*(-qy) - ty*(-qx)
+        val px = normX * arcore.lastImgW
+        val py = normY * arcore.lastImgH
+        val lx =  (px - arcore.lastCx) * depthM / arcore.lastFx
+        val ly =  (py - arcore.lastCy) * depthM / arcore.lastFy
+        val lz = -depthM
 
-        return Vec3(
-            s.cameraWorldX + rx,
-            s.cameraWorldY + ry,
-            s.cameraWorldZ + rz
-        )
+        val wp = FloatArray(3)
+        pose.transformPoint(floatArrayOf(lx, ly, lz), 0, wp, 0)
+        return Vec3(wp[0], wp[1], wp[2])
     }
 }

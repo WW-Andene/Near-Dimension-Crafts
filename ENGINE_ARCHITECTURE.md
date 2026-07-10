@@ -276,7 +276,7 @@ computation in `ScanPipeline.kt` (computed from `input.capturedBitmaps.firstOrNu
 that function doesn't have a live bitmap reference). No device available to confirm the
 resulting improvement in exported scan geometry; CI verifies compilation only.
 
-### 4.11 Hand-landmark "world" coordinates and ARCore/SfM depth-cloud "world" coordinates are not the same coordinate frame — root cause CONFIRMED, correct fix scoped but NOT attempted (too large/risky for this pass)
+### 4.11 Hand-landmark "world" coordinates and ARCore/SfM depth-cloud "world" coordinates are not the same coordinate frame — DONE
 
 While fixing §4.10, `HandSegmentationMask.buildHull()`/`filterPointCloud()` raised a bigger
 question, investigated further per direct request. Root cause is now confirmed, not just
@@ -314,19 +314,40 @@ passed to it. Whether this is "somewhat imprecise" or "near-total masking failur
 cannot be determined without a device — this depends on distances involved that aren't known
 from static analysis.
 
-**What a correct fix actually requires** (scoped, not attempted): going back to *before*
-MediaPipe's world-landmark re-centring — using real per-landmark camera-space position (from
-SL-corrected depth or DA2's calibrated depth at each landmark's 2D pixel, combined with camera
-intrinsics to unproject into camera-space X/Y/Z), then composing that camera-space position with
-the camera's current ARCore pose to place it in world space. This is a materially different (and
-larger) piece of work than "add a pose-composition step" — it needs a working per-landmark metric
-depth source, which is itself only conditionally available (SL calibration state, DA2 XR
-calibration warm-up), each an additional dependency this fix would inherit. **Not attempted in
-this pass**: this is a scoped follow-up in its own right, not a same-session fix, and the
-`depthMode`/TSDF path it affects is one of several reconstruction paths (the default,
-landmark-only `DepthCarver.carveAndExtract` path never touches `store`/ARCore's cloud at all, so
-is unaffected by this specific bug). Recommend treating this as its own dedicated pass with
-device access, not guessed at further here.
+**Fix applied**: implemented the correct approach identified above — going back to *before*
+MediaPipe's world-landmark re-centring, using real per-landmark camera-space depth unprojected
+via camera intrinsics, then transformed by the camera's live ARCore pose.
+
+- `ArCoreDepthSource` now exposes the full `Pose` object plus raw (native-resolution) intrinsics
+  (`lastPose`, `lastFx/Fy/Cx/Cy`, `lastImgW/ImgH`) captured every `onDrawFrame()` call, alongside
+  the existing `lastCamX/Y/Z`.
+- `DepthAnythingSource.isMetricCalibrated` (new) reports whether the DA2 dense depth map has
+  actually completed XR (or dual-anchor log-linear) calibration — before that, `denseDepth`'s
+  values are an arbitrary uncalibrated scale, not metres, and must not be trusted as such.
+- `SpatialLayer.unprojectLandmarkToWorld(normX, normY): Vec3?` (new) — samples DA2's calibrated
+  dense depth at the landmark's own pixel, unprojects through the camera's real intrinsics into
+  camera space, then calls `pose.transformPoint(...)` — the exact same unprojection
+  `ArCoreDepthSource.onDrawFrame()` already performs per-pixel for its own depth cloud, evaluated
+  at one landmark instead of a dense grid. Returns null (not a wrong-frame guess) when metric
+  depth isn't currently available — not tracking, or DA2 hasn't calibrated yet.
+- `HandSegmentationMask.buildHullMetric(lms, unproject)` (replaces `buildHull`) builds the hull
+  from this real per-landmark world position instead of `landmarkToWorld`'s hand-centred output,
+  so it's finally in the *same* coordinate frame as `PointCloudStore`'s ARCore/SfM cloud it's
+  compared against. Both `AppViewModel` call sites now fall back to **unfiltered** (pass the
+  cloud through) when metric depth isn't available yet, rather than filtering against a hull in
+  the wrong frame — strictly better than the previous always-wrong behavior.
+
+**Also removed**: `SpatialLayer.toWorldSpace()` (the "GAP-1" function) and its supporting
+`ArCoreDepthSource.lastCamQX/Y/Z/W` fields. `toWorldSpace()` had zero callers anywhere and was
+itself an instance of the exact broken pose-composition approach this finding's analysis ruled
+out (it rotated MediaPipe's hand-*centred* world landmark by the camera's rotation and added the
+camera's world position, treating a hand-relative offset as a camera-relative one) — confirmed
+dead and confirmed wrong before deletion, not assumed.
+
+**Scope note**: this fix only applies where real metric depth is actually available (rear camera,
+ARCore tracking, DA2 XR-calibrated) — the same conditions `depthMode`/TSDF fusion already require
+elsewhere. The default landmark-only `DepthCarver.carveAndExtract` path never touched `store`/
+ARCore's cloud and was never affected by this bug in the first place.
 
 ### 4.12 `BitmapGrayscaleShim`'s single-listener slot meant SfM went permanently silent after the first scan of every session — DONE
 

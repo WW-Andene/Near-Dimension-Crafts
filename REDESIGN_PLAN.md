@@ -445,22 +445,37 @@ an explicit decision (documented in `ENGINE_ARCHITECTURE.md` alongside the fix),
    stays unwired here — it needs a loaded scan asset and belongs contextually to a model-viewing
    screen, not general settings. `switchCamera`/`toggleTorch` stay gesture-only, matching their
    existing deliberate UX.
-7. **§4.11 revisited** — re-confirmed rather than re-litigated: the root cause (MediaPipe world
-   landmarks discard camera/room position by design — origin re-centered to the hand's own
-   geometric center every frame) and the conclusion that a pose-composition fix cannot work (no
-   translation information survives in hand-centred landmarks to compose a room position from)
-   both still hold on review. The correct fix — real per-landmark camera-space depth (SL/DA2)
-   unprojected via camera intrinsics before composing with ARCore's pose — remains scoped as its
-   own follow-up, not attempted here: it's a materially larger change with conditional
-   dependencies (SL calibration, DA2 XR warm-up) and no way to verify a regression from this
-   environment without a device. Not reattempting a large, unverifiable change blind is the same
-   judgment call this document made the first time, not new caution invented for this pass.
+7. **§4.11 — implemented, directly requested afterward ("do 4.11")**: the root cause (MediaPipe
+   world landmarks discard camera/room position by design — origin re-centered to the hand's own
+   geometric center every frame) and the conclusion that naive pose-composition can't work (no
+   translation survives in hand-centred landmarks to compose a room position from) both held on
+   review — and turned out to already have a live example of the exact broken approach sitting in
+   the codebase: `SpatialLayer.toWorldSpace()` (the old "GAP-1" function), which rotated a
+   hand-centred landmark by the camera's rotation and added the camera's position, with zero
+   callers anywhere. Confirmed dead and confirmed wrong before deleting it, per this document's
+   own §3.2 rule.
+   The actual fix goes back to before MediaPipe's re-centring: `ArCoreDepthSource` now exposes
+   its full `Pose` plus raw intrinsics every frame; `DepthAnythingSource.isMetricCalibrated` (new)
+   gates on whether DA2's dense depth is really metric yet; `SpatialLayer.unprojectLandmarkToWorld`
+   (new) samples DA2's calibrated depth at a landmark's own pixel and unprojects it through real
+   intrinsics + the live ARCore pose — the same math `ArCoreDepthSource.onDrawFrame()` already
+   uses for its own depth cloud, just at one pixel instead of a dense grid.
+   `HandSegmentationMask.buildHullMetric` (replaces `buildHull`) builds the hull from this position
+   instead of the hand-centred one, so it's finally in the same frame as the point cloud it's
+   compared against; both call sites in `AppViewModel` fall back to unfiltered when metric depth
+   isn't available rather than filtering against the wrong frame. See ENGINE_ARCHITECTURE.md
+   §4.11 for the full derivation. Not verified on-device (no device access in this environment) —
+   CI (compile-only) is the only automated check; correctness of the unprojection math itself was
+   checked by direct comparison against `ArCoreDepthSource.onDrawFrame`'s own per-pixel formula,
+   which does the identical calculation for its depth cloud.
 
 ## Recommended order
 
 Phase 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10. Phases 0-4 are all independent of each other
 technically and could be reordered or parallelized; the sequence above is by impact (fix what's
 visibly broken first), not by dependency. Phases 9 and 10 were both reactive (direct user
-requests) rather than part of the original sequence. All phases are now done; the one remaining
-open item in the whole document is §4.11's larger follow-up (per-landmark depth unprojection),
-deliberately scoped out as noted above.
+requests) rather than part of the original sequence. All phases, including §4.11's real fix, are
+now done. The remaining open items are the narrow, explicitly-scoped-out non-goals noted inline
+above (§8.2's inherent BVH-format limitation, §9's larger recomposition restructuring, a few
+named exclusions inside Phase 8) — none of them a deferred "big fix," all of them a documented
+line drawn on purpose.

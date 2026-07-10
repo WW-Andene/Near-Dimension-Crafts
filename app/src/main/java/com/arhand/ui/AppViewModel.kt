@@ -494,11 +494,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                                                 cloud.add(com.arhand.util.Vec3(buf[bi], buf[bi+1], buf[bi+2]))
                                                 bi += 4
                                             }
-                                            val hull = HandSegmentationMask.buildHull(
-                                                lms, aspect, mirrorX = uiState.value.isFrontCamera,
-                                                camAspect = latestBitmap?.let { it.width.toFloat() / it.height.toFloat() } ?: aspect
-                                            )
-                                            val masked = HandSegmentationMask.filterPointCloud(cloud, hull)
+                                            // ENGINE_ARCHITECTURE.md §4.11 — hull built from real
+                                            // per-landmark world position (same ARCore frame as
+                                            // `cloud`), not MediaPipe's hand-centred world landmarks.
+                                            // Falls back to unfiltered when metric depth isn't
+                                            // available yet (not tracking / DA2 not XR-calibrated) —
+                                            // better than filtering against a wrong coordinate frame.
+                                            val hull = HandSegmentationMask.buildHullMetric(lms) { nx, ny ->
+                                                spatialLayer.unprojectLandmarkToWorld(nx, ny)
+                                            }
+                                            val masked = if (hull != null)
+                                                HandSegmentationMask.filterPointCloud(cloud, hull) else cloud
                                             capturedDepthFrames.add(masked)
                                             // HAND-8 — Integrate into TSDF volume for surface-aware reconstruction
                                             val depthConf = (store.pointCount / 10000f).coerceIn(0.3f, 1f)
@@ -536,11 +542,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                                                 cloud.add(com.arhand.util.Vec3(buf[bi], buf[bi+1], buf[bi+2]))
                                                 bi += 4
                                             }
-                                            val hull = HandSegmentationMask.buildHull(
-                                                lms, aspect, mirrorX = uiState.value.isFrontCamera,
-                                                camAspect = latestBitmap?.let { it.width.toFloat() / it.height.toFloat() } ?: aspect
-                                            )
-                                            val masked = HandSegmentationMask.filterPointCloud(cloud, hull)
+                                            // ENGINE_ARCHITECTURE.md §4.11 — hull built from real
+                                            // per-landmark world position (same ARCore frame as
+                                            // `cloud`), not MediaPipe's hand-centred world landmarks.
+                                            // Falls back to unfiltered when metric depth isn't
+                                            // available yet (not tracking / DA2 not XR-calibrated) —
+                                            // better than filtering against a wrong coordinate frame.
+                                            val hull = HandSegmentationMask.buildHullMetric(lms) { nx, ny ->
+                                                spatialLayer.unprojectLandmarkToWorld(nx, ny)
+                                            }
+                                            val masked = if (hull != null)
+                                                HandSegmentationMask.filterPointCloud(cloud, hull) else cloud
                                             capturedDepthFrames.add(masked)
                                             val depthConf = (store.pointCount / 10000f).coerceIn(0.3f, 1f)
                                             val camPos = spatialLayer.state.value.let {

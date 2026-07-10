@@ -71,6 +71,15 @@ class DepthAnythingSource(private val context: Context) {
     @Volatile private var xrShift: Float = 0f
     @Volatile private var xrCalibrated: Boolean = false
 
+    /**
+     * True once either calibration path ([xrCalibrated] or [llCalibrated]) has run at least
+     * once. Before that, [denseDepth]'s values are the uncalibrated `1/(invDepth+0)` default —
+     * an arbitrary relative scale, not metres. ENGINE_ARCHITECTURE.md §4.11 — callers that need
+     * a real metric distance (not just relative depth for CLAHE/arbiter weighting) must check
+     * this before trusting [denseDepth]/[sampleAtNormalized] as metres.
+     */
+    val isMetricCalibrated: Boolean get() = xrCalibrated || llCalibrated
+
     private var env:     OrtEnvironment? = null
     private var session: OrtSession?     = null
 

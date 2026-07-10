@@ -36,11 +36,30 @@ class ArCoreDepthSource(private val context: Context) : DepthSource {
     @Volatile var lastCamX: Float = Float.NaN
     @Volatile var lastCamY: Float = Float.NaN
     @Volatile var lastCamZ: Float = Float.NaN
-    /** GAP-1 — ARCore camera-to-world rotation quaternion (x,y,z,w). NaN until first frame. */
-    @Volatile var lastCamQX: Float = Float.NaN
-    @Volatile var lastCamQY: Float = Float.NaN
-    @Volatile var lastCamQZ: Float = Float.NaN
-    @Volatile var lastCamQW: Float = Float.NaN
+
+    /**
+     * ENGINE_ARCHITECTURE.md §4.11 — last tracking frame's full camera-to-world transform
+     * and image intrinsics, exposed so a landmark's own 2D pixel + measured depth can be
+     * unprojected into ARCore world space the same way [onDrawFrame] already does for its
+     * own depth cloud below. Null/NaN until the first TRACKING frame.
+     *
+     * [lastPose] replaces the old GAP-1 `lastCamQX/Y/Z/W` quaternion fields — those existed
+     * solely to feed `SpatialLayer.toWorldSpace()`'s manual quaternion rotation, which had
+     * zero callers and, per §4.11, was the wrong fix in the first place (it composed the
+     * camera's rotation with MediaPipe's hand-*centred* world landmark as if it were a
+     * camera-relative offset, which silently drops the hand's real distance from the
+     * camera). Using the [com.google.ar.core.Pose] object directly and calling
+     * [com.google.ar.core.Pose.transformPoint] is both simpler and exactly matches this
+     * class's own per-pixel unprojection below, instead of a second hand-rolled
+     * implementation of the same math.
+     */
+    @Volatile var lastPose: Pose? = null
+    @Volatile var lastFx: Float = Float.NaN
+    @Volatile var lastFy: Float = Float.NaN
+    @Volatile var lastCx: Float = Float.NaN
+    @Volatile var lastCy: Float = Float.NaN
+    @Volatile var lastImgW: Int = 0
+    @Volatile var lastImgH: Int = 0
 
     // ─── DepthSource lifecycle ────────────────────────────────────────────
 
@@ -136,9 +155,21 @@ class ArCoreDepthSource(private val context: Context) : DepthSource {
             // Expose camera position for FusedDepthSource scale calibration (Bug 25 fix)
             val t = pose.translation
             lastCamX = t[0]; lastCamY = t[1]; lastCamZ = t[2]
-            // GAP-1: Expose camera-to-world rotation quaternion for SpatialLayer.toWorldSpace
-            val q = pose.rotationQuaternion
-            lastCamQX = q[0]; lastCamQY = q[1]; lastCamQZ = q[2]; lastCamQW = q[3]
+
+            // ENGINE_ARCHITECTURE.md §4.11 — full pose + raw (non-downsampled) intrinsics,
+            // for unprojecting a hand landmark's own pixel + measured depth into world
+            // space. Intrinsics here are in cam.imageIntrinsics' own native image space
+            // (NOT rescaled to depthImage's resolution like fx/fy/cx/cy above) because
+            // that's the resolution MediaPipe landmark x/y are normalised against — this
+            // Session and the hand tracker share the same physical (rear) camera, which is
+            // the same constraint depthMode/TSDF fusion already requires elsewhere.
+            lastPose  = pose
+            lastFx    = intrinsics.focalLength[0]
+            lastFy    = intrinsics.focalLength[1]
+            lastCx    = intrinsics.principalPoint[0]
+            lastCy    = intrinsics.principalPoint[1]
+            lastImgW  = intrinsics.imageDimensions[0]
+            lastImgH  = intrinsics.imageDimensions[1]
 
             val stride      = 4
             val minConf     = 200

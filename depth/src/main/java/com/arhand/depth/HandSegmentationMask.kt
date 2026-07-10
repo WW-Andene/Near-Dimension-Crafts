@@ -1,19 +1,28 @@
 package com.arhand.depth
 
 import com.arhand.tracking.HandLandmarks
-import com.arhand.tracking.landmarkToWorld
 import com.arhand.util.Vec3
 
 /**
  * B7 — Hand segmentation mask for cleaner point cloud.
  *
  * Cheap alternative to MediaPipe Selfie Segmentation: builds the 2D convex hull of
- * the 21 landmarks (projected to world-space XY, matching [landmarkToWorld]) and
- * discards point-cloud points whose XY projection falls outside that hull.
+ * the 21 landmarks and discards point-cloud points whose XY projection falls outside
+ * that hull.
  *
- * Used to filter the raw [ArCoreDepthSource] depth point cloud before it's handed to
- * [DepthApiCarver] / [Scanner.cloudPoints], removing background points (desk, wall,
- * other hand) that are not part of the scanned hand.
+ * Used to filter the raw ARCore/SfM depth point cloud ([com.arhand.util.PointCloudStore.snapshot])
+ * before it's handed to [DepthCarver] / TSDF integration, removing background points (desk,
+ * wall, other hand) that are not part of the scanned hand.
+ *
+ * ENGINE_ARCHITECTURE.md §4.11 — the hull used to be built from
+ * [com.arhand.tracking.landmarkToWorld]'s output (MediaPipe world landmarks, hand-centred
+ * origin) and compared directly against the point cloud (ARCore-world-anchored coordinates)
+ * — two different coordinate frames, so the comparison was meaningless. [buildHullMetric]
+ * fixes this by unprojecting each landmark's own 2D pixel + a real measured depth into the
+ * *same* ARCore world frame the cloud is already in, via [SpatialLayer.unprojectLandmarkToWorld].
+ * The old `landmarkToWorld`-based `buildHull` is gone — nothing else in the codebase used it
+ * for this purpose (verified by repo-wide grep before removal), so there's no reason to keep
+ * the broken version around alongside the correct one.
  */
 object HandSegmentationMask {
 
@@ -25,16 +34,22 @@ object HandSegmentationMask {
     const val HULL_MARGIN = 0.06f
 
     /**
-     * Build the 2D convex hull (world-space XY) of a hand's 21 landmarks.
+     * Build the 2D convex hull (ARCore world-space XY) of a hand's 21 landmarks, using
+     * real per-landmark depth rather than MediaPipe's hand-centred world landmarks.
      *
-     * @return hull vertices in counter-clockwise order, or empty if fewer than 3
-     *         distinct points are available.
+     * @param unproject Typically [SpatialLayer.unprojectLandmarkToWorld]. Takes a landmark's
+     *                  normalised (x, y) and returns its ARCore-world position, or null when
+     *                  metric depth isn't currently available for that pixel.
+     * @return hull vertices in counter-clockwise order, or null if metric depth wasn't
+     *         available for at least 3 landmarks (caller should skip filtering that frame
+     *         rather than fall back to a hull in the wrong coordinate frame).
      */
-    fun buildHull(lms: HandLandmarks, aspect: Float, mirrorX: Boolean, camAspect: Float = aspect): List<Pair<Float, Float>> {
-        if (lms.size < 3) return emptyList()
-        val pts = lms.map { lm ->
-            val (wx, wy, _) = landmarkToWorld(lm, aspect, mirrorX, camAspect)
-            wx to wy
+    fun buildHullMetric(lms: HandLandmarks, unproject: (Float, Float) -> Vec3?): List<Pair<Float, Float>>? {
+        if (lms.size < 3) return null
+        val pts = ArrayList<Pair<Float, Float>>(lms.size)
+        for (lm in lms) {
+            val p = unproject(lm.x, lm.y) ?: return null
+            pts.add(p.x to p.y)
         }
         return convexHull(pts)
     }
@@ -43,7 +58,7 @@ object HandSegmentationMask {
      * Filter [points] (world-space) to only those whose XY projection lies inside
      * [hull] expanded outward by [HULL_MARGIN].
      *
-     * @param hull convex hull as returned by [buildHull]; if empty (degenerate hand
+     * @param hull convex hull as returned by [buildHullMetric]; if empty (degenerate hand
      *             pose), all points are kept (no filtering).
      */
     fun filterPointCloud(points: List<Vec3>, hull: List<Pair<Float, Float>>): List<Vec3> {
