@@ -522,8 +522,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
 
         // Scan/freeform-scan status watchers + initial scanState history load now live on
-        // scanCoordinator (REDESIGN_PLAN.md Phase 8, item 5).
-        scanCoordinator.start()
+        // scanCoordinator (REDESIGN_PLAN.md Phase 8, item 5) — started from a separate init
+        // block below, after scanCoordinator's own declaration (Kotlin runs property
+        // initializers/init blocks in textual order, so it can't be started from here).
 
         // Phase 1 — Body skeleton: enable body tracking and forward landmarks to GL renderer.
         enableBodyTracking(true)
@@ -703,6 +704,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
     )
+
+    init {
+        // Must run after scanCoordinator's own declaration above — see the comment at the
+        // old call site (REDESIGN_PLAN.md Phase 8, item 5).
+        scanCoordinator.start()
+    }
 
     fun toggleTorch() {
         val next = !uiState.value.torchOn
