@@ -97,8 +97,21 @@ class SpatialLayer(private val context: Context) {
     val ao      = AmbientOcclusion()
     /** RANSAC floor/wall/ceiling plane detector. */
     val planes  = PlaneFitter()
+    /**
+     * Persistent, spatially-deduplicated room-scale point map — off by default, gated by
+     * [setRoomMapActive]. Distinct from [fusedDepth]'s [PointCloudStore][com.arhand.util.PointCloudStore]
+     * (`fusedDepth.store`), which is a capacity-bounded, age-ordered live buffer for the active
+     * scan: this instead keeps one best-confidence sample per 5mm world-space cell, with no
+     * age-based eviction, so walking around a room accumulates a stable map instead of a
+     * recency-windowed stream. See [roomMapActive]/[setRoomMapActive]/[roomMapPoints].
+     */
+    val voxelGrid = VoxelGrid()
 
     private var started = false
+
+    /** True while incoming depth points are also being accumulated into [voxelGrid]. */
+    @Volatile var roomMapActive: Boolean = false
+        private set
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -122,6 +135,10 @@ class SpatialLayer(private val context: Context) {
             override fun onPoints(batch: FloatArray, len: Int) {
                 // Points go directly into fusedDepth.store — no extra routing needed.
                 // Scan tools (TSDF, FreeformScanner) read from store on their own cadence.
+                // Additionally fed into voxelGrid, but only while roomMapActive — unlike
+                // fusedDepth.store, this isn't part of the always-on baseline cost; it's an
+                // opt-in feature (see setRoomMapActive), same shape as setReconstructionActive.
+                if (roomMapActive) voxelGrid.update(batch, len)
             }
             override fun onStats(stats: DepthSource.Stats) {
                 val arcoreCamX = fusedDepth.arcore.lastCamX
@@ -156,6 +173,31 @@ class SpatialLayer(private val context: Context) {
     fun setReconstructionActive(active: Boolean) = fusedDepth.setReconstructionActive(active)
 
     /**
+     * Start or stop accumulating incoming depth points into [voxelGrid] (see its class doc).
+     * Off by default — this is an opt-in room-mapping feature, not part of the always-on
+     * baseline, so there's no accumulation cost unless a caller actually wants the map.
+     * Turning off does not clear already-accumulated points; call [clearRoomMap] for that.
+     */
+    fun setRoomMapActive(active: Boolean) {
+        roomMapActive = active
+    }
+
+    /** Current room-map points as (x, y, z) triples, dropping confidence — e.g. for export. */
+    fun roomMapPoints(): List<Vec3> {
+        val flat = voxelGrid.exportAsArray()
+        val out = ArrayList<Vec3>(flat.size / 4)
+        var i = 0
+        while (i < flat.size) {
+            out.add(Vec3(flat[i], flat[i + 1], flat[i + 2]))
+            i += 4
+        }
+        return out
+    }
+
+    /** Discard all accumulated room-map points without affecting [roomMapActive]. */
+    fun clearRoomMap() = voxelGrid.reset()
+
+    /**
      * Release ARCore's hold on the rear camera before [com.arhand.camera.CameraController]
      * switches onto it, and reacquire once it switches away again — call around
      * [com.arhand.camera.CameraController.switchCamera] (ENGINE_ARCHITECTURE.md §4.9).
@@ -184,6 +226,8 @@ class SpatialLayer(private val context: Context) {
         fusedDepth.stop()
         slam.reset()
         rppg.reset()
+        roomMapActive = false
+        voxelGrid.reset()
         _state.value = SpatialState()
     }
 

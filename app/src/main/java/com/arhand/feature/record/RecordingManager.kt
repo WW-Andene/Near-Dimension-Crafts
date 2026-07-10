@@ -96,7 +96,7 @@ class RecordingManager(
         val label = rawLabel.replace(' ', '_').replace(Regex("[^A-Za-z0-9_\\-]"), "")
 
         val bvhFile  = motionRecorder.exportBvh(outputDir, label, scannedOffsets)
-        val gltfFile = com.arhand.export.GltfAnimationExporter.export(
+        val gltfFile = com.arhand.export.GLBAnimationExporter.export(
             frames    = snapshot,
             asset     = loadedAsset,
             outputDir = outputDir,

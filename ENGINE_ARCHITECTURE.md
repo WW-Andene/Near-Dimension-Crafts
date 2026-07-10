@@ -62,7 +62,7 @@ Everything below was checked against these two rules.
 
 ## 4. Live bugs (currently executing, ranked by impact)
 
-### 4.1 Exported hand model's baked texture uses a UV projection that doesn't match the mesh
+### 4.1 Exported hand model's baked texture uses a UV projection that doesn't match the mesh — DONE (REDESIGN_PLAN.md Phase 1.1)
 
 `TextureBaker.bakeFromTriangles` (`export/.../TextureBaker.kt:67-77`) computes
 `u = atan2(x, z)` / `v = 1f - (y-minY)/height` directly from world coordinates. Its own doc
@@ -82,7 +82,7 @@ shared projection function that `TextureBaker` also calls, eliminating the possi
 two drifting apart again. Recommended: (b) — this is the second UV-mismatch-shaped bug in this
 codebase (see §11 for the same root cause pattern); a shared function prevents a third.
 
-### 4.2 `hasStoredModel` is never reset on scan cancel/failure — stale "scan complete" modal can reappear
+### 4.2 `hasStoredModel` is never reset on scan cancel/failure — stale "scan complete" modal can reappear — DONE (Phase 1.2)
 
 `MainActivity.kt:159-163`: `LaunchedEffect(freeformActive, hasStoredModel) { if (!freeformActive
 && hasStoredModel) showResult = true }`. `AppViewModel.scanState.hasStoredModel` is set `true`
@@ -102,7 +102,7 @@ set a `justCancelled`/`justFailed` flag that the `LaunchedEffect` checks first a
 on. Recommended: (a) — it fixes the actual conflation (any-prior-success vs. this-attempt-succeeded)
 rather than adding another flag to keep in sync.
 
-### 4.3 `FreeformScanner.update()` called twice per frame during every active freeform scan
+### 4.3 `FreeformScanner.update()` called twice per frame during every active freeform scan — DONE (Phase 2)
 
 - `AppViewModel.kt:525-533` calls it directly, gated on `scanState.value.freeformActive`.
 - `SpatialFrameRouter.kt:226-236` calls it again, gated on `router.isFreeformActive`.
@@ -121,7 +121,7 @@ call — consistent with §10.3's posed-scan asymmetric-migration fix (same move
 routing responsibility. Recommended: (a) — matches the direction every other duplicate-ownership
 fix this session went (consolidate onto the producer/router pipeline, not the legacy inline path).
 
-### 4.4 `renderer.handsData` / `renderer.mirrorX` written from two independent collectors every frame
+### 4.4 `renderer.handsData` / `renderer.mirrorX` written from two independent collectors every frame — DONE (Phase 3.1)
 
 `SpatialFrameRouter.kt:117-121` (from `frame.primaryHand/secondaryHand`, post-`assembleFrame`)
 and `AppViewModel.kt:402-403` (from the raw `hands` value in the same collector that calls
@@ -135,7 +135,7 @@ writes instead if raw-landmark latency matters more than post-assembly consisten
 whether assembly adds meaningful delay). Recommended: (a) unless a measured latency problem
 specifically justifies (b).
 
-### 4.5 `depthConfidence` written from three independent, unsynchronized coroutines — but never actually rendered
+### 4.5 `depthConfidence` written from three independent, unsynchronized coroutines — but never actually rendered — DONE (Phase 3.2)
 
 `AppViewModel.kt:373,508,562,777` all write `depthConfidence` with no ordering guarantee.
 **Update from the UI-layer research pass**: `MainActivity.kt:139` collects this value into a
@@ -152,7 +152,7 @@ and delete the other three. Recommended: (a) — check first whether this was me
 `SpatialLayer.state.depthConfidence` and the migration was simply never finished (same shape as
 §10's findings) before assuming it's just dead.
 
-### 4.6 `restJointPositions` written from two independent coroutines, not even `@Volatile`
+### 4.6 `restJointPositions` written from two independent coroutines, not even `@Volatile` — DONE (Phase 4.1)
 
 `AppViewModel.kt:1019` (`processFreeformScan`) and `:1109` (`processScan`), each its own
 `Dispatchers.Default` coroutine, both write this plain `var FloatArray?` with no synchronization.
@@ -212,7 +212,7 @@ by `ArCoreDepthSource`/`GrayscaleCamera`'s own Camera2 calls. No device availabl
 environment to confirm actual achieved frame rate or rule out device-specific AE-range quirks;
 CI verifies compilation only.
 
-### 4.9 Switching to the rear camera froze the screen — ARCore and CameraX both held the same physical camera
+### 4.9 Switching to the rear camera froze the screen — ARCore and CameraX both held the same physical camera — DONE
 
 `ArCoreDepthSource` creates its own ARCore `Session` (`ArCoreDepthSource.kt:181`) with no
 camera-facing configuration and no ARCore Shared-Camera integration, so it opens its own
@@ -242,7 +242,7 @@ this environment to confirm on-device; CI verifies compilation only.
 
 ## 5. Timing & correlation gaps (values from different cadences combined as if simultaneous)
 
-### 5.1 Cross-cadence staleness: Core writes some fields at raw-frame rate, Translation reads them at hand-inference rate
+### 5.1 Cross-cadence staleness: Core writes some fields at raw-frame rate, Translation reads them at hand-inference rate — DONE (Phase 8 item 1)
 
 `SpatialFrameProducer.assembleFrame()` runs once per throttled `handPipeline.processed`
 emission, but reads `getMeanArbiterWeights()`, `metricMode`, `rppg.bpm`/`amplitude` — all written
@@ -257,7 +257,7 @@ snapshot object atomically per raw frame instead of individually-racing fields �
 stronger guarantee. Recommended: (a) first, as a low-risk diagnostic step; escalate to (b) only
 if (a) shows the staleness is large enough to matter in practice.
 
-### 5.2 `SlamLite`'s optical flow can be stale relative to the DA2 frame it calibrates
+### 5.2 `SlamLite`'s optical flow can be stale relative to the DA2 frame it calibrates — DONE (Phase 6)
 
 `SpatialLayer.processBitmap()` runs `slam.process(bitmap)` every raw frame unconditionally, then
 assigns `fusedDepth.da2.externalFlowMag/NX/NY`. `DepthAnythingSource.processAsync` drops frames
@@ -273,7 +273,7 @@ checks tag age before using them, falling back to a neutral value if stale — c
 mitigates. Recommended: (a) — this was the original fix direction identified before the broader
 assessment widened scope, still the right answer.
 
-### 5.3 Camera frame stream has two uncorrelated consumers that can each drop different frames
+### 5.3 Camera frame stream has two uncorrelated consumers that can each drop different frames — DONE (Phase 8 item 3)
 
 `CameraFrameProvider.frames` (`tryEmit`, non-suspending, drops on backpressure) has two
 collectors: `SpatialFrameProducer.init()` (full pipeline) and a second one in
@@ -286,7 +286,7 @@ processed bitmap to `ARRenderer.submitCameraFrame` itself, guaranteeing consiste
 collectors but have the second read from "last delivered to producer" instead of subscribing
 independently — weaker guarantee, still allows drift if producer itself drops a frame. Recommended: (a).
 
-### 5.4 `sfmScale` calibration has no explicit staleness bound between ARCore callbacks
+### 5.4 `sfmScale` calibration has no explicit staleness bound between ARCore callbacks — DONE (Phase 8 item 1)
 
 `FusedDepthSource.updateScaleCalibration()` gates on displacement *magnitude* but not *time*
 between callbacks — irregular ARCore callback timing under load could compare a large-but-old
@@ -297,7 +297,7 @@ the update if too much time elapsed between callbacks. Small, contained. (b) Lea
 ARCore callback cadence is empirically regular enough on real target devices — unverifiable
 without a device.
 
-### 5.5 `feedFarPlaneAnchor()` compares a newly detected plane against a possibly-old ARCore depth reading
+### 5.5 `feedFarPlaneAnchor()` compares a newly detected plane against a possibly-old ARCore depth reading — DONE (Phase 8 item 1)
 
 `lastArcoreMeanDepth` (written only in `ArcoreCallback.onPoints`) is used as a "near anchor" for
 a far-plane calibration that can fire at an unrelated moment. Same category as §5.4.
@@ -305,7 +305,7 @@ a far-plane calibration that can fire at an unrelated moment. Same category as �
 **Fix options**: (a) Add a timestamp check comparing plane-detection time against
 `lastArcoreMeanDepth`'s last-write time; skip/warn if too stale. Same shape as §5.4's fix.
 
-### 5.6 `AppViewModel.loadedAsset` is a plain, non-volatile `var` read across threads at export time
+### 5.6 `AppViewModel.loadedAsset` is a plain, non-volatile `var` read across threads at export time — DONE (Phase 4.2)
 
 `AppViewModel.kt:250` (`internal var loadedAsset`) is written on the Main dispatcher
 (`:343`, inside an `assetManager.loadedAsset.collect` coroutine) and read on an IO-dispatcher
@@ -323,7 +323,7 @@ look if a similar hazard is found nearby later.
 
 ## 6. Documentation/reality mismatches and wasted work
 
-### 6.1 `PointCloudStore`'s own doc comment describes a threading model its actual callers don't follow
+### 6.1 `PointCloudStore`'s own doc comment describes a threading model its actual callers don't follow — DONE (Phase 7)
 
 `util/PointCloudStore.kt:14` states `snapshot()` "is called from the GL thread" — actual callers
 are `AppViewModel.kt:487,490,542,545`, inside `handPipeline.processed.collect`, not the GL
@@ -350,7 +350,7 @@ product decision (was a flash effect wanted anywhere?), not a unilateral cleanup
 
 ## 7. Resource lifecycle (GL leaks and re-initialization — a different bug class from §4–§5's races)
 
-### 7.1 Every renderer `release()` method has zero callers
+### 7.1 Every renderer `release()` method has zero callers — DONE (Phase 5)
 
 `DepthMeshRenderer`, `SkinnedMeshRenderer`, `LiveMeshRenderer`, `CameraPassthroughRenderer`,
 `PointCloudRenderer` (the last never even constructed anywhere — fully dead), and
@@ -366,7 +366,7 @@ renderers that already have it, then wire it in per (a). Recommended: both, as o
 is the render-module analogue of §10's disconnected-feature pattern (cleanup code built, never
 invoked), same fix shape (finish the wiring, don't leave it half-built).
 
-### 7.2 Only 1 of 9 renderer `init()` methods guards against being called twice
+### 7.2 Only 1 of 9 renderer `init()` methods guards against being called twice — DONE (Phase 5)
 
 `DepthCloudRenderer.kt:69` is the sole re-entrancy guard (`if (program != 0) return`). Every
 other `init()` unconditionally re-runs `glGenBuffers`/`glGenVertexArrays`/`compileProgram` into
@@ -417,7 +417,7 @@ toward a pose that was never observed.
 assuming constant 30fps — right approach for total clip duration, but BVH format only supports
 one uniform value for the whole file, so uneven real spacing (e.g. a burst of `tryEmit` drops in
 one segment, none in another) gets homogenized, distorting internal timing even though total
-duration is preserved. `GltfAnimationExporter.kt:161-163`, by contrast, writes each frame's real
+duration is preserved. `GLBAnimationExporter.kt:161-163`, by contrast, writes each frame's real
 timestamp as the glTF sampler's input time — the animated-GLB export doesn't have this
 limitation, only BVH does, and it's a genuine BVH format constraint, not a code bug.
 
@@ -558,6 +558,42 @@ for exactly this failure mode. The rule (read the candidate's own doc comments b
 "unused" means "delete") only works if it's actually applied every time, not just to the cases
 that inspired it.
 
+### 10.6 `VoxelGrid`/`PointCloudExporter` — a real, different feature that looked like dead code — DONE
+
+A repo-wide dead-code audit initially flagged `depth/VoxelGrid.kt` and `export/PointCloudExporter.kt`
+as unreferenced (zero callers anywhere). Re-review before deleting (§3.2) found `VoxelGrid` is
+not a duplicate of `PointCloudStore` — it's a different capability: `PointCloudStore` is a
+capacity-bounded, age-ordered live buffer for the active scan; `VoxelGrid` spatially deduplicates
+into one best-confidence point per 5mm world-space cell with no age-based eviction, and its own
+doc comment says it's designed to pair with `SlamLite` (already live) for persistent room-scale
+mapping as the camera moves — a distinct feature nothing in the app exposed.
+
+**Fix**: wired both in rather than deleting either. `SpatialLayer.voxelGrid` now accumulates real
+points from the existing depth-source callback, gated behind `setRoomMapActive(Boolean)`
+(off by default, same shape as `setReconstructionActive` — no added per-frame cost unless a
+caller opts in). `AppViewModel.toggleRoomMap()`/`clearRoomMap()`/`exportRoomMap()` expose it,
+with `exportRoomMap()` reusing `PointCloudExporter.exportPly` as the actual output path instead
+of that file staying an orphaned debug utility. **Not done**: no UI button/gesture calls these
+yet — see §10.7, the same gap affects several other already-working methods, and picking where
+this belongs in the UI is a product decision, not a technical one.
+
+### 10.7 Several working `AppViewModel` methods have no UI trigger at all — not a bug, but worth a decision
+
+Repo-wide grep for call sites of `toggleCloud()`, `toggleDepth()`, `toggleLiveMesh()` found none,
+anywhere — not from `MainActivity`'s Compose tree, not from a gesture, not from anywhere except
+their own declarations. `switchCamera()`/`toggleTorch()` are reachable, but only via the built-in
+gesture shortcuts (`PEACE`/`ROCK` in `dispatchGestureShortcut`), not any visible button. Each of
+these has fully working, previously-verified backend logic (§10.6's new `toggleRoomMap` etc. now
+joins them in the same state) — this isn't dead code the way §10.1-10.5's features are dormant
+for a missing wire; the logic runs fine the moment something calls it. The gap is purely
+UI surface: no button, menu entry, or settings row currently reaches any of them.
+
+**Open product question**: are these meant to get a UI entry point (a settings panel row, a debug
+menu, additional gesture mappings), or are some of them intentionally gesture/code-only by
+design (e.g. torch and camera-switch already have a deliberate gesture-only UX)? Not fixed here —
+picking where five different toggles surface in the UI is a design decision, not a technical one,
+and this document's own scope is diagnosis, not blind UI authorship.
+
 ## 11. Intentional multi-writer patterns — not bugs, don't "fix" into a violation
 
 ### 11.1 `renderer.latestRetargetResult` has two legitimate writers, mode-gated
@@ -589,7 +625,7 @@ future pass mechanically applying §3.1 doesn't collapse this into a bug that is
   scan renders correctly rather than blending with leftover geometry.
 - **`MotionRecorder`'s threading contract** — matches its documented contract exactly
   (`start`/`stop`/`reset`/`pushFrame`/`frameSnapshot` all synchronized on `frames`).
-- **`GLBExporter`, `GltfAnimationExporter`, `TextureBaker`, `PointCloudExporter`** — stateless
+- **`GLBExporter`, `GLBAnimationExporter`, `TextureBaker`, `PointCloudExporter`** — stateless
   objects, no cached fields, no stale-asset references of their own; all data passed in fresh at
   call time.
 - **`OscReceiver`'s own mutable state** (`_frames`, `socket`, `scope`) — exactly one writer path

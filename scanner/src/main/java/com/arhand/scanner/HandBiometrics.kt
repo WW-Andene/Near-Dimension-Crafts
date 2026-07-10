@@ -3,8 +3,8 @@ package com.arhand.scanner
 import com.arhand.tracking.HandLandmarks
 import com.arhand.tracking.LM
 import com.arhand.tracking.Landmark
-import com.arhand.util.Vec3
 import com.arhand.tracking.landmarkToWorld
+import com.arhand.util.Vec3
 import kotlin.math.PI
 import kotlin.math.sqrt
 

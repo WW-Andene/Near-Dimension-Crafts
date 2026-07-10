@@ -19,6 +19,7 @@ import com.arhand.depth.NeuralImplicitCarver
 import com.arhand.depth.ManoShapeFitter
 import com.arhand.depth.fusion.FusedDepthSource
 import com.arhand.export.GLBExporter
+import com.arhand.export.PointCloudExporter
 import com.arhand.render.ARRenderer
 import com.arhand.render.RenderMode
 import com.arhand.scanner.CLAHEAnalyzer
@@ -86,6 +87,9 @@ data class AppUiState(
     val renderMode:    RenderMode    = RenderMode.SKELETON,
     val torchOn:       Boolean       = false,
     val showCloud:     Boolean       = false,
+    val roomMapActive: Boolean       = false,
+    /** Absolute path of the last PLY export from [AppViewModel.exportRoomMap], or null. */
+    val roomMapExportPath: String?   = null,
     val isFrontCamera: Boolean       = true,
     val scanActive:    Boolean       = false,
     val showSplash:    Boolean       = true,
@@ -104,6 +108,22 @@ private val Context.onboardingDataStore: DataStore<Preferences>
 private val Context.oefDataStore: DataStore<Preferences>
     by preferencesDataStore(name = "handy_oef")
 
+/**
+ * Application-level coordinator — owns the sensing pipeline, scan lifecycle, and UI state.
+ *
+ * Constructs and wires together [spatialLayer] (Core: ARCore/SfM/Photometric/SLAM/rPPG/DA2),
+ * `producer` ([com.arhand.feature.spatial.SpatialFrameProducer], the camera loop and MediaPipe
+ * tracking pipelines), `router` ([com.arhand.feature.spatial.SpatialFrameRouter], which
+ * distributes assembled frames to the renderer/OSC/BVH/scanner), `scanCoordinator`
+ * ([com.arhand.feature.scan.ScanCoordinator], posed/freeform scan lifecycle), and `renderer`
+ * ([com.arhand.render.ARRenderer]) — then exposes [uiState] plus feature-toggle/action methods
+ * (`toggleTorch`, `switchCamera`, `startScan`, etc.) as the single surface Compose UI reads from
+ * and calls into.
+ *
+ * See `ENGINE_ARCHITECTURE.md` §2 for the module/layer model this class sits at the top of, and
+ * `REDESIGN_PLAN.md` Phase 8 item 5 for why scan-lifecycle orchestration specifically was
+ * extracted into `scanCoordinator` rather than staying inline here.
+ */
 class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // DataStore instances declared at file top level (see below class)
@@ -271,7 +291,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /**
      * ARCH-1 — Most recent unified full-body frame. Assembles hand + body + face into
      * one structure per frame. Null until the first hand frame is processed.
-     * Consumed by OSC, MotionRecorder, and future GltfAnimationExporter.
+     * Consumed by OSC, MotionRecorder, and future GLBAnimationExporter.
      */
     val latestFullBodyRetargetResult: MutableStateFlow<FullBodyRetargetResult?> = MutableStateFlow(null)
 
@@ -789,6 +809,38 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             scanState.value = scanState.value.copy(depthMode = false)
             capturedDepthFrames.clear()
             spatialLayer.setReconstructionActive(false)
+        }
+    }
+
+    /**
+     * Toggle accumulating a persistent, spatially-deduplicated room-scale point map
+     * (see [com.arhand.depth.SpatialLayer.voxelGrid]'s class doc) — distinct from
+     * [toggleDepth]'s scan-reconstruction sources and from the live scan buffer.
+     * Off by default; toggling off does not clear already-accumulated points, so
+     * re-enabling continues the same map — call [clearRoomMap] to start over.
+     */
+    fun toggleRoomMap() {
+        val next = !uiState.value.roomMapActive
+        spatialLayer.setRoomMapActive(next)
+        uiState.update { it.copy(roomMapActive = next) }
+    }
+
+    /** Discard all accumulated room-map points without affecting [toggleRoomMap]'s on/off state. */
+    fun clearRoomMap() {
+        spatialLayer.clearRoomMap()
+        uiState.update { it.copy(roomMapExportPath = null) }
+    }
+
+    /**
+     * Export the current room-map points as ASCII PLY. No-op if empty. Result path is
+     * published to [AppUiState.roomMapExportPath] once the (IO-dispatcher) write completes.
+     */
+    fun exportRoomMap() {
+        val points = spatialLayer.roomMapPoints()
+        if (points.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val file = PointCloudExporter.exportPly(getApplication(), points)
+            uiState.update { it.copy(roomMapExportPath = file.absolutePath) }
         }
     }
 

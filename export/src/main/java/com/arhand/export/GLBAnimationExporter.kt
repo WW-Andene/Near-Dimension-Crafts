@@ -29,7 +29,7 @@ import java.nio.ByteOrder
  *
  * Usage:
  * ```kotlin
- * val file = GltfAnimationExporter.export(
+ * val file = GLBAnimationExporter.export(
  *     frames    = motionRecorder.frameSnapshot(),
  *     asset     = loadedAsset,
  *     outputDir = getExternalFilesDir("mocap")!!,
@@ -39,7 +39,7 @@ import java.nio.ByteOrder
  *
  * Thread safety: [export] is a pure function — no shared state. Run it on Dispatchers.IO.
  */
-object GltfAnimationExporter {
+object GLBAnimationExporter {
 
     // ─── glTF constants ───────────────────────────────────────────────────────
     private const val GLB_MAGIC        = 0x46546C67   // "glTF"
@@ -261,7 +261,7 @@ object GltfAnimationExporter {
         val root = JSONObject()
         root.put("asset", JSONObject().apply {
             put("version", "2.0")
-            put("generator", "Handy AR — GltfAnimationExporter")
+            put("generator", "Handy AR — GLBAnimationExporter")
         })
 
         // Nodes: [mesh node (optional)] + [16 joint nodes]

@@ -1,8 +1,8 @@
 package com.arhand.depth
 
 import com.arhand.tracking.HandLandmarks
-import com.arhand.util.Vec3
 import com.arhand.tracking.landmarkToWorld
+import com.arhand.util.Vec3
 
 /**
  * B7 — Hand segmentation mask for cleaner point cloud.
@@ -11,7 +11,7 @@ import com.arhand.tracking.landmarkToWorld
  * the 21 landmarks (projected to world-space XY, matching [landmarkToWorld]) and
  * discards point-cloud points whose XY projection falls outside that hull.
  *
- * Used to filter the raw [ArDepthSession] depth point cloud before it's handed to
+ * Used to filter the raw [ArCoreDepthSource] depth point cloud before it's handed to
  * [DepthApiCarver] / [Scanner.cloudPoints], removing background points (desk, wall,
  * other hand) that are not part of the scanned hand.
  */

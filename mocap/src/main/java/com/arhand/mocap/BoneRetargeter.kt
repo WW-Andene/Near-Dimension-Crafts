@@ -2,8 +2,8 @@ package com.arhand.mocap
 
 import com.arhand.tracking.HandLandmarks
 import com.arhand.tracking.LM
-import com.arhand.util.Vec3
 import com.arhand.tracking.landmarkToWorld
+import com.arhand.util.Vec3
 import kotlin.math.acos
 import kotlin.math.sqrt
 
@@ -325,7 +325,7 @@ data class RetargetResult(
  *
  * Replaces the three independent streams (hand [RetargetResult], [BodyRetargetResult],
  * [com.arhand.tracking.FaceExpressions]) that previously flowed through separate paths
- * to [com.arhand.mocap.OscStreamer], [MotionRecorder], and [com.arhand.export.GltfAnimationExporter].
+ * to [com.arhand.mocap.OscStreamer], [MotionRecorder], and [com.arhand.export.GLBAnimationExporter].
  *
  * Any field may be null if that pipeline is inactive or produced no result this frame.
  * Consumers check nullability and degrade gracefully — e.g. OSC skips body bones when

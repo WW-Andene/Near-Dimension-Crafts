@@ -12,8 +12,8 @@ import kotlin.math.roundToInt
 /**
  * Mode A — ARCore Depth API.
  *
- * Direct port of Handy's [com.arhand.depth.ArDepthSession], adapted to the
- * [DepthSource] interface. The Session is driven from the GL thread via
+ * Direct port of Handy's `ArDepthSession` (predecessor project; not present in this repo),
+ * adapted to the [DepthSource] interface. The Session is driven from the GL thread via
  * [onDrawFrame] (called by the GLSurfaceView renderer) so that
  * `Session.update()` always runs with the correct EGL context current —
  * the requirement ARCore imposes when a shared texture name is set.
@@ -216,7 +216,7 @@ class ArCoreDepthSource(private val context: Context) : DepthSource {
     }
 
     companion object {
-        /** Pack (x,y,z) into a voxel key for deduplication — lifted from Handy's ArDepthSession. */
+        /** Pack (x,y,z) into a voxel key for deduplication — lifted from Handy's `ArDepthSession`. */
         fun voxelKey(x: Float, y: Float, z: Float, cellSize: Float): Long {
             val qx = (x / cellSize).roundToInt()
             val qy = (y / cellSize).roundToInt()

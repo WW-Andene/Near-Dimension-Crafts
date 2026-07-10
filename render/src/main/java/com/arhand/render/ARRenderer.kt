@@ -153,16 +153,17 @@ class ARRenderer(private val perfMonitor: PerfMonitor) : GLSurfaceView.Renderer 
     /**
      * B6 — Called from the GL thread once a valid EGL context exists.
      * The Int argument is a newly allocated GL texture name that ARCore's camera
-     * feed can bind to via [ArDepthSession.setCameraTextureName].
-     * AppViewModel wires this to the active [ArDepthSession] in [toggleDepth].
+     * feed can bind to. AppViewModel wires this to
+     * `producer.setCameraTextureName(textureId)`, which forwards down to the active
+     * `com.arhand.depth.ArCoreDepthSource.setCameraTextureName`.
      */
     var onGlSurfaceCreated: ((glTextureId: Int) -> Unit)? = null
 
     /**
      * B6 — Called from [onDrawFrame] once per frame when ARCore depth mode is active.
-     * Allows the caller to tick [ArDepthSession.update] on the GL thread, which is the
-     * only thread where [com.google.ar.core.Session.update] is safe to call.
-     * Returns the latest [com.arhand.util.Vec3] point cloud (may be empty).
+     * AppViewModel wires this to `producer.onGlFrame()`, which forwards down to
+     * `com.arhand.depth.ArCoreDepthSource.onDrawFrame` on the GL thread, the only
+     * thread where [com.google.ar.core.Session.update] is safe to call.
      */
     var onDepthFrameTick: (() -> Unit)? = null
 
@@ -222,7 +223,7 @@ class ARRenderer(private val perfMonitor: PerfMonitor) : GLSurfaceView.Renderer 
         depthCloudRenderer.release()
         depthCloudRenderer.init()
 
-        // ViewModel so ArDepthSession.setCameraTextureName() can be called.
+        // ViewModel so ArCoreDepthSource.setCameraTextureName() can be called.
         // This must happen on the GL thread after a valid EGL context exists.
         val texIds = IntArray(1)
         GLES30.glGenTextures(1, texIds, 0)

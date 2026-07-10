@@ -14,9 +14,12 @@ inconsistently"). Fixing the shared root cause once resolves both.
 
 Four items are **blocked** — they need your product decision before any code gets written,
 because the "fix" is really "is this feature still wanted," not a technical choice. Everything
-else has a concrete recommended design below, not just options.
+else has a concrete recommended design below, not just options. (A fifth, §10.7, was added later
+in Phase 9 — a different-shaped discovery: working code with no UI trigger at all, not a
+dormant/disconnected feature, but still a "what's actually wanted here" question, not a
+technical one.)
 
-## Phase 0 — Safety net before touching anything
+## Phase 0 — Safety net before touching anything — DONE
 
 §13 already recommends this: add regression tests for the two confirmed, highest-visibility live
 bugs *before* fixing them, so the fix is provably correct and can't silently regress later, given
@@ -27,7 +30,7 @@ bugs *before* fixing them, so the fix is provably correct and can't silently reg
 - Test that completing a scan, then cancelling/failing a second one, does not re-trigger the
   result modal (§4.2).
 
-## Phase 1 — The two confirmed live bugs users would actually notice
+## Phase 1 — The two confirmed live bugs users would actually notice — DONE
 
 ### 1.1 Unify the UV projection (§4.1)
 
@@ -82,7 +85,7 @@ safe once this session (the hand-retarget consolidation) — but this time the p
 (the standing rule from earlier this session) caught two real, silent regressions the plan itself
 didn't anticipate, confirming why that rule exists.
 
-## Phase 3 — Delete the remaining duplicate-writer patterns
+## Phase 3 — Delete the remaining duplicate-writer patterns — DONE
 
 ### 3.1 `renderer.handsData` / `renderer.mirrorX` (§4.4)
 
@@ -100,7 +103,7 @@ place in the whole plan where "delete" is the right call for a whole field, not 
 call site — because the thing it would be consolidated *into* already exists, is already
 correct, and is already what users see.
 
-## Phase 4 — Cross-thread visibility fixes (mechanical, low-risk, bundle as one pass)
+## Phase 4 — Cross-thread visibility fixes (mechanical, low-risk, bundle as one pass) — DONE
 
 ### 4.1 `restJointPositions` (§4.6)
 
@@ -198,15 +201,27 @@ technical fix without knowing what's actually wanted:
   under the current mode design, or retire along with its stale doc comment?
 - **§10.5 `rPPGSource.snsProxy`** — a designed SNS/stress-arousal metric with no consumer. Wire
   it into OSC/HUD output somewhere, or retire it and the doc section describing it?
+- **§10.7 Five working `AppViewModel` methods have no UI trigger** (`toggleCloud`, `toggleDepth`,
+  `toggleLiveMesh`, and — after this pass — `toggleRoomMap`/`clearRoomMap`/`exportRoomMap`;
+  `switchCamera`/`toggleTorch` are gesture-reachable but have no visible button either). Add UI
+  entry points (settings row, debug menu, more gestures), or are some of these intentionally
+  code/gesture-only? Not a bug — the backend logic all works — but picking where they surface
+  is a design decision, not something to guess at blind.
 
 Also effectively blocked, lower priority, deferred rather than urgent:
-- §5.1, §5.4, §5.5 (cross-cadence staleness in Core calibration paths) — add timestamp checks
-  only if on-device testing ever shows these cause a visible problem; speculative otherwise.
 - §8.1 (BVH occlusion hard-snap → hold-at-last-known instead), §8.3 (OSC quaternion
   normalization), §9 (Compose recomposition memoization) — real, but lower severity than
   everything above; worth doing, not worth blocking the higher-impact phases on.
 - §6.2 (`WhiteScreenOverlay`) — same shape as the blocked items above (needs a "was a one-shot
   flash actually wanted" answer), just lower stakes.
+
+**Correction**: this list previously also included §5.1/§5.4/§5.5 as "deferred, speculative
+without on-device data." That was superseded by Phase 8 item 1 below, which re-read each
+finding's own recommended fix directly from `ENGINE_ARCHITECTURE.md` rather than from memory and
+found the doc already specified a small, low-risk fix (timestamp-tag + expose age / time-bound
+the calibration comparison) rather than something requiring on-device confirmation first — so
+these were implemented in this pass, not deferred. See Phase 8 item 1's own text for what was
+actually done and why it wasn't speculative after all.
 
 ## Phase 8 — Deeper architectural change (bigger than bug-fixing, addresses root shape not symptoms)
 
@@ -325,9 +340,53 @@ Sequenced last because 1-4 are genuine redesigns of working code, higher risk, a
 doing once the concrete bugs in Phases 0-7 are fixed and confirmed — redesigning underneath
 unfixed bugs makes them harder to isolate, not easier.
 
+## Phase 9 — Reported on-device symptoms, plus a repo-wide cleanup pass — DONE
+
+Triggered by direct user reports after Phase 8 shipped, not by a pre-existing
+`ENGINE_ARCHITECTURE.md` finding — each fix added its own §4.7-4.9 entry there afterward, same
+"diagnose in the architecture doc, execute here" split as every earlier phase.
+
+1. **Unthrottled Core-layer depth channels (§4.7)** — SLAM/DA2 ran unconditionally on every
+   camera frame, several lines before `FrameThrottler`'s existing gate for MediaPipe tracking.
+   Added `util/DepthChannelBudget.kt` (same shed/recover EMA shape as `ModelBudgetManager`,
+   generalised to named channels) and gated both calls in `SpatialFrameProducer.processBitmap`.
+2. **Camera stream capped at 30fps (§4.8)** — `ImageAnalysis` had no capture-request tuning at
+   all. Added `CameraController.applyHighestFpsRange()`, querying the camera's own advertised
+   AE target FPS ranges via `Camera2Interop` rather than hardcoding a rate a device might reject.
+3. **Rear-camera switch froze the screen (§4.9)** — ARCore's `Session` holds its own independent
+   Camera2 handle to the rear camera, always-on; `CameraController.switchCamera()` binding onto
+   the same physical camera hung waiting for ARCore to release it. Added
+   `ArCoreDepthSource.pauseCameraHold()`/`resumeCameraHold()`, called around the CameraX rebind
+   in `AppViewModel.switchCamera()`.
+4. **Repo-wide dead-code/consistency audit, requested directly** — verified independently (not
+   just trusted agent output — see §3.2's standing rule) rather than acted on blind:
+   - Deleted `camera/TorchController.kt` and `depth/ArDepthSession.kt` — both genuinely dead
+     (empty deprecated stub; fully-superseded old class per its own successor's docstring),
+     confirmed via git history (both present since the initial zip extraction, untouched since)
+     and zero real callers anywhere in the repo.
+   - `depth/VoxelGrid.kt` and `export/PointCloudExporter.kt` looked dead by the same test but
+     turned out to be a real, different, unwired feature — see ENGINE_ARCHITECTURE.md §10.6 for
+     why, and §10.7 for a related discovery (several other working `AppViewModel` methods have
+     no UI trigger either) that's flagged as a product decision, not silently fixed.
+   - `ENGINE_ARCHITECTURE.md` §4.1-4.6, §5.1-5.6, §6.1, §7.1-7.2 were fixed in earlier phases of
+     this same plan but never marked resolved in the original findings document — it was actively
+     misdescribing fixed code as still-broken. Backfilled "— DONE (Phase X)" on every header that
+     phase mapping in this document confirms was actually completed; left §6.2/§8.x/§9/§10.x
+     untouched since those remain genuinely not done or blocked on a product decision.
+   - This document's own Phase 0/1/3/4 headers were missing their "— DONE" markers despite being
+     completed (Phase 2/5/6/7 had them) — same class of gap, fixed here. Also removed a direct
+     self-contradiction: the "Blocked" section still listed §5.1/§5.4/§5.5 as deferred/speculative
+     after Phase 8 item 1 (above) had already implemented them.
+   - Minor style fixes: `import com.arhand.tracking.landmarkToWorld` placed out of alphabetical
+     order (after `com.arhand.util.Vec3`) in 6 files — a fossil from an earlier cross-module
+     refactor, corrected. `AppViewModel.kt` had no class-level KDoc for the app's central
+     ViewModel — added one.
+
 ## Recommended order
 
 Phase 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8, then the blocked items once you've answered the four
-product questions, then the deferred/lower-priority list opportunistically. Phases 0-4 are all
-independent of each other technically and could be reordered or parallelized; the sequence above
-is by impact (fix what's visibly broken first), not by dependency.
+(now five, with §10.7) product questions, then the deferred/lower-priority list opportunistically.
+Phases 0-4 are all independent of each other technically and could be reordered or parallelized;
+the sequence above is by impact (fix what's visibly broken first), not by dependency. Phase 9 was
+reactive (direct user reports plus a requested cleanup pass) rather than part of the original
+sequence, and is now also done.

@@ -8,7 +8,7 @@ import kotlin.math.sqrt
  * B6 — ARCore Depth API integration (Phase 2), steps 4-5.
  *
  * Replaces [DepthCarver]'s capsule-SDF proxy with a real metric-depth SDF built from
- * the fused world-space point cloud accumulated via [ArDepthSession].
+ * the fused world-space point cloud accumulated via [ArCoreDepthSource].
  *
  * Approach:
  *   1. Voxel-fuse all accumulated depth points into a deduplicated cloud (avoids
@@ -69,7 +69,7 @@ object DepthApiCarver {
      * B4 LOD grid resolution) so downstream consumers (smoothing, GLB export,
      * point-cloud export) need no changes.
      *
-     * @param depthFrames Per-frame world-space depth point clouds from [ArDepthSession.update]
+     * @param depthFrames Per-frame world-space depth point clouds from [ArCoreDepthSource.onDrawFrame]
      * @return Marching cubes mesh as flat position array, or empty if the fused cloud
      *         is too sparse (caller should fall back to [DepthCarver.carveAndExtract]).
      */
