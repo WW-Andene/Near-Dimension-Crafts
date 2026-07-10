@@ -199,10 +199,13 @@ class SpatialFrameProducer(
         } else null
 
         // v27: SLAM + rPPG — always-on visual odometry and biometrics
-        spatialLayer.processBitmap(bitmap)
+        val flowSnapshot = spatialLayer.processBitmap(bitmap)
 
-        // v27: DA2, DRASL, JBU — aux depth sources fed with current SL depth for JBU
-        spatialLayer.fusedDepth.processAuxSources(bitmap, slResult?.depth, scope)
+        // v27: DA2, DRASL, JBU — aux depth sources fed with current SL depth for JBU.
+        // flowSnapshot is this exact bitmap's SlamLite reading, passed through rather than
+        // read from a shared field, so it can't be overwritten by a later frame while this
+        // one's DA2 inference is still in flight (ENGINE_ARCHITECTURE.md §5.2).
+        spatialLayer.fusedDepth.processAuxSources(bitmap, slResult?.depth, scope, flowSnapshot)
 
         val ts    = System.currentTimeMillis()
         val nowMs = ts

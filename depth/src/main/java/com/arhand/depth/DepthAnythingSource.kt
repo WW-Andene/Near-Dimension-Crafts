@@ -80,12 +80,23 @@ class DepthAnythingSource(private val context: Context) {
     private val emaMap  = FloatArray(DENSE_W * DENSE_H)
     private var emaWarm = false
 
-    // S4.1 — Motion-adaptive EMA: set to SlamLite.meanFlowMag each frame
-    @Volatile var externalFlowMag: Float = 0f
-
-    // S4.2 — Normalised optical flow for EMA warp (fraction of camera image per frame)
-    @Volatile var externalFlowNX: Float = 0f
-    @Volatile var externalFlowNY: Float = 0f
+    /**
+     * S4.1/S4.2 — SlamLite optical-flow reading for exactly one bitmap, passed as a
+     * parameter through [processAsync] instead of read from shared mutable fields.
+     *
+     * DA2 inference can take longer than one camera frame; when it does,
+     * [processAsync] drops the overlapping frame and the earlier one keeps running.
+     * If the flow reading were a shared field (as it was before), a later frame's
+     * SlamLite output would silently overwrite it while the earlier frame's
+     * inference was still in flight, so the flow-warp/motion-adaptive-EMA math
+     * would apply a *different* frame's camera motion to this frame's depth map
+     * (ENGINE_ARCHITECTURE.md §5.2). Bundling it with the bitmap at enqueue time
+     * makes that impossible — each in-flight inference keeps the flow reading valid
+     * for the exact frame it was computed from, however long it runs.
+     */
+    data class FlowSnapshot(val mag: Float, val nx: Float, val ny: Float) {
+        companion object { val ZERO = FlowSnapshot(0f, 0f, 0f) }
+    }
 
     // S3.4 — Outdoor scene context: multiply DA2 inv-depth by 0.35 before calibration
     @Volatile var outdoorMode: Boolean = false
@@ -175,14 +186,16 @@ class DepthAnythingSource(private val context: Context) {
      * Run inference on [bitmap] asynchronously on [Dispatchers.Default].
      * Results are written to [depthBlocks] when complete. Drops the frame instead
      * of overlapping if a previous call is still running.
+     *
+     * @param flow The SlamLite optical-flow reading for this exact [bitmap] — see [FlowSnapshot].
      */
-    fun processAsync(bitmap: Bitmap, scope: CoroutineScope) {
+    fun processAsync(bitmap: Bitmap, flow: FlowSnapshot, scope: CoroutineScope) {
         if (!isAvailable) return
         if (!processing.compareAndSet(false, true)) return   // previous frame still in flight
         val copy = bitmap.copy(Bitmap.Config.ARGB_8888, false)
         scope.launch(Dispatchers.Default) {
             try {
-                process(copy)
+                process(copy, flow)
             } finally {
                 processing.set(false)
             }
@@ -190,7 +203,7 @@ class DepthAnythingSource(private val context: Context) {
     }
 
     /** Synchronous inference — call from a background thread. */
-    fun process(bitmap: Bitmap) {
+    fun process(bitmap: Bitmap, flow: FlowSnapshot = FlowSnapshot.ZERO) {
         val sess = session ?: return
 
         // Resize to model input size
@@ -268,7 +281,7 @@ class DepthAnythingSource(private val context: Context) {
         // S4.1: Motion-adaptive EMA α — fast update when subject is moving, heavy smoothing
         // when stationary. α_min=0.20 (max smoothing), α_max=0.80 (near-instant), thresh=15px
         val emaAlpha = run {
-            val t = (externalFlowMag / 15f).coerceIn(0f, 1f)
+            val t = (flow.mag / 15f).coerceIn(0f, 1f)
             0.20f + (0.80f - 0.20f) * t
         }
 
@@ -279,8 +292,8 @@ class DepthAnythingSource(private val context: Context) {
             emaWarm = true
         } else {
             emaMap.copyInto(prevEmaMap)
-            val warpX = externalFlowNX * (DENSE_W - 1)
-            val warpY = externalFlowNY * (DENSE_H - 1)
+            val warpX = flow.nx * (DENSE_W - 1)
+            val warpY = flow.ny * (DENSE_H - 1)
             for (dy in 0 until DENSE_H) {
                 for (dx in 0 until DENSE_W) {
                     val wx = (dx.toFloat() - warpX).coerceIn(0f, (DENSE_W - 1).toFloat())
@@ -300,7 +313,7 @@ class DepthAnythingSource(private val context: Context) {
         // S2.4: Stationary multi-frame noise averaging.
         // When optical flow < 2px for 10+ confirmed frames, accumulate 16 frames and
         // compute arithmetic mean (4× SNR improvement vs single frame).
-        if (externalFlowMag < STATIONARY_FLOW_THRESH) {
+        if (flow.mag < STATIONARY_FLOW_THRESH) {
             stationaryFrameCount++
             if (stationaryFrameCount >= STATIONARY_CONFIRM_FRAMES) {
                 for (i in emaMap.indices) accumBuf[i] += emaMap[i]

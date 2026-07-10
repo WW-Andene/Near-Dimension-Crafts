@@ -146,7 +146,7 @@ Fixed by calling `release()` immediately before `init()` at both call sites — 
 (release() on a virgin or already-released renderer is a guarded no-op), and it's what makes the
 re-entrancy guards actually safe to keep instead of a hazard.
 
-## Phase 6 — The other Core-layer correctness fix
+## Phase 6 — The other Core-layer correctness fix — DONE
 
 ### 6.1 `SlamLite` → DA2 flow correlation (§5.2)
 
@@ -157,6 +157,15 @@ it gets around to running. This is the one timing/correlation finding worth fixi
 rather than just instrumenting — it's Core-internal, self-contained, and directly affects
 hand-landmark Z-correction accuracy, unlike §5.1/§5.4/§5.5 which are lower-confidence and
 touch ARCore/SfM calibration paths that are harder to verify without a device.
+
+**Implemented** as `DepthAnythingSource.FlowSnapshot(mag, nx, ny)`. `SpatialLayer.processBitmap`
+now returns the snapshot computed from that call's `slam.process(bitmap)` instead of writing it
+into `da2.externalFlowMag`/`NX`/`NY` shared fields (removed entirely). `SpatialFrameProducer`
+captures the return value and threads it through
+`FusedDepthSource.processAuxSources(bitmap, slDepth, scope, flow)` into
+`da2.processAsync(bitmap, flow, scope)`, which closes over it for the launched coroutine — so a
+frame whose DA2 inference is still in flight keeps the exact flow reading it was enqueued with,
+immune to being overwritten by a newer frame's SlamLite output.
 
 ## Phase 7 — Documentation/contract corrections (no behavior change)
 

@@ -158,13 +158,16 @@ class SpatialLayer(private val context: Context) {
     /**
      * Process [bitmap] through the always-on v27 sensing pipeline.
      * Call once per camera frame from [SpatialFrameProducer.processBitmap].
+     *
+     * @return This frame's SlamLite optical-flow reading, for the caller to pass into
+     *   [com.arhand.depth.fusion.FusedDepthSource.processAuxSources] alongside the same
+     *   [bitmap] — see [DepthAnythingSource.FlowSnapshot] for why this is a return value
+     *   rather than a field DA2 reads whenever it gets around to running (§5.2).
      */
-    fun processBitmap(bitmap: android.graphics.Bitmap) {
+    fun processBitmap(bitmap: android.graphics.Bitmap): DepthAnythingSource.FlowSnapshot {
         slam.process(bitmap)
         rppg.process(bitmap)
-        fusedDepth.da2.externalFlowMag = slam.meanFlowMag   // S4.1
-        fusedDepth.da2.externalFlowNX  = slam.medianFlowNX  // S4.2
-        fusedDepth.da2.externalFlowNY  = slam.medianFlowNY  // S4.2
+        return DepthAnythingSource.FlowSnapshot(slam.meanFlowMag, slam.medianFlowNX, slam.medianFlowNY)
     }
 
     fun stop() {

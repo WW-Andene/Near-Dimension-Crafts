@@ -452,8 +452,15 @@ class FusedDepthSource(
      * @param bitmap  Current camera frame
      * @param slDepth 8×6 SL depth blocks for JBU upsampling, or null
      * @param scope   Coroutine scope for DA2 async inference
+     * @param flow    SlamLite optical-flow reading for this exact [bitmap] (see
+     *   [DepthAnythingSource.FlowSnapshot]) — from [SpatialLayer.processBitmap]'s return value.
      */
-    fun processAuxSources(bitmap: Bitmap, slDepth: FloatArray?, scope: CoroutineScope) {
+    fun processAuxSources(
+        bitmap: Bitmap,
+        slDepth: FloatArray?,
+        scope: CoroutineScope,
+        flow: DepthAnythingSource.FlowSnapshot
+    ) {
         // Reconstruction-only sources: only useful while actually scanning — see
         // reconstructionActive's doc. Skipping them the rest of the time is most of
         // the fix for the app being unconditionally CPU/camera-pipeline heavy.
@@ -480,7 +487,7 @@ class FusedDepthSource(
         // DA2 stays always-on: its dense depth map also feeds core hand-landmark Z
         // correction (SpatialFrameProducer.spatializeHand), not just reconstruction.
         if (da2.isAvailable) {
-            da2.processAsync(bitmap, scope)
+            da2.processAsync(bitmap, flow, scope)
             updateSourceSignal(CrossChannelArbiter.CH_DA2, da2.confidence)
             da2.depthBlocks?.let { updateSourceSignalBlocks(CrossChannelArbiter.CH_DA2, it) }
         }
