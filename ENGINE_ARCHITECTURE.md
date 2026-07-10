@@ -165,6 +165,32 @@ scan-completion paths into one shared handler if their post-processing logic is 
 Recommended: (a) as the minimal safe fix; consider (b) only if a broader posed/freeform
 consolidation (§10.3) makes it natural.
 
+### 4.7 Core-layer depth channels (SLAM, DA2) run unthrottled at full camera rate — DONE
+
+`SpatialFrameProducer.processBitmap` calls `spatialLayer.processBitmap(bitmap)` (SlamLite
+Harris-corner detection + pyramidal optical flow, plus rPPG) and
+`spatialLayer.fusedDepth.processAuxSources(...)` (DA2 CNN dispatch, plus DRASL/JBU, plus
+RS-stereo/PSP/stereo/FLARE/MOIRE when `reconstructionActive`) unconditionally, several lines
+*before* `frameThrottler.shouldInfer()`'s gate. MediaPipe tracking (hand/body/face, a few lines
+below that gate) already has two layers of adaptive rate control (`FrameThrottler`,
+`ModelBudgetManager`) — Core had none. Since `frameProvider.frames.collect { processBitmap(...) }`
+runs on one sequential per-frame coroutine, an over-budget Core pass on one frame delays every
+later stage of that same frame, including hand-tracking submission — a plausible direct cause of
+lag/delay between real movement and rendered result reported on-device.
+
+**Fix**: added `util/DepthChannelBudget.kt` — same shed/recover EMA mechanism as
+`ModelBudgetManager`, generalised to a named-channel list (`"da2"`, `"slam"`, priority-ordered;
+`da2` first since its output also feeds hand-landmark Z correction, not just reconstruction).
+Wired into `SpatialFrameProducer.processBitmap`: both calls are now gated on
+`depthBudget.tick(...)`'s per-frame decision and their wall-clock time reported back via
+`depthBudget.report(...)`. No channel is ever fully disabled (`everyN` capped at `maxEvery = 4`
+by default); each channel already exposes its last output via its own `@Volatile`/cached field
+(SlamLite's internal state, DA2's `depthBlocks`, and a new `lastFlowSnapshot` field on
+`SpatialFrameProducer` so a "da2 ran, slam didn't" frame still has a flow reading to pass
+through), so skipped frames read as stale-but-recent rather than absent. Unit-tested in
+isolation (`util/src/test/.../DepthChannelBudgetTest.kt`) — no device available in this
+environment to confirm the on-device lag actually improves; CI verifies compilation only.
+
 ## 5. Timing & correlation gaps (values from different cadences combined as if simultaneous)
 
 ### 5.1 Cross-cadence staleness: Core writes some fields at raw-frame rate, Translation reads them at hand-inference rate

@@ -171,6 +171,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         frameThrottler = frameThrottler,
         clahe          = clahe,
         modelBudget    = ModelBudgetManager(),
+        depthBudget    = com.arhand.util.DepthChannelBudget(),
         perfMonitor    = perfMonitor
     )
 
