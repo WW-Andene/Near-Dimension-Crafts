@@ -113,20 +113,38 @@ visibility, not ordering, is the actual gap.
 IO-dispatcher export coroutine, and pass the snapshot as a parameter. Cleaner than `@Volatile`
 here since it removes the cross-thread read entirely rather than just guaranteeing visibility.
 
-## Phase 5 — GL resource lifecycle (§7.1, §7.2)
+## Phase 5 — GL resource lifecycle (§7.1, §7.2) — DONE
 
-**Decision**: 
+**Decision**:
 1. Add a `release()` method (following the existing pattern already used by
    `DepthMeshRenderer`/`SkinnedMeshRenderer`/etc.) to the four renderers missing one
    (`HandRenderer`, `BodySkeletonRenderer`, `FaceSkeletonRenderer`, `DepthCloudRenderer`
    component mode).
-2. Wire `ARRenderer` to call `release()` on every sub-renderer at the point its own GL context
-   is torn down.
-3. Add the same re-entrancy guard `DepthCloudRenderer` already has (`if (program != 0) return`)
+2. Add the same re-entrancy guard `DepthCloudRenderer` already has (`if (program != 0) return`)
    to the other 8 `init()` methods.
+3. Wire `ARRenderer.onSurfaceCreated` (and `ModelViewerRenderer.onSurfaceCreated`, which also
+   calls a sub-renderer's `init()` directly) to call `release()` immediately before `init()` on
+   every sub-renderer.
 4. Add a `DisposableEffect` to `ModelViewerScreen` that calls its renderer's `release()` on
    dispose — this is the one concretely reachable leak path identified (repeated navigation to
    that screen within one process lifetime, no guaranteed EGL context loss between visits).
+
+**Correction made during implementation**: item 2 as originally scoped (bare re-entrancy guards,
+with item 3 phrased as "at the point its own GL context is torn down") would have been a real
+regression, not just insurance. `onSurfaceCreated` fires again after ordinary Android lifecycle
+events (backgrounding without `setPreserveEGLContextOnPause`, or rotation — since `ARRenderer`
+is owned by `AppViewModel`, which survives configuration changes, the *same* renderer instances
+get a brand-new EGL context on rotation). A bare `if (program != 0) return` guard would see the
+stale non-zero handle from the just-destroyed context and skip re-initialization entirely,
+leaving the renderer trying to draw with invalid handles in the new context — silently broken
+rendering after every rotation or background/resume, which is worse than the leak it was meant
+to prevent (and that leak was already unconfirmed — see §7.2's own "not confirmed to happen
+without a device" caveat). Confirmed reachable via a second call site found during
+implementation: `ModelViewerRenderer.onSurfaceCreated` calls `skinnedRenderer.init()` directly
+with no `release()` first, so the same class of renderer would have been affected there too.
+Fixed by calling `release()` immediately before `init()` at both call sites — safe in every case
+(release() on a virgin or already-released renderer is a guarded no-op), and it's what makes the
+re-entrancy guards actually safe to keep instead of a hazard.
 
 ## Phase 6 — The other Core-layer correctness fix
 

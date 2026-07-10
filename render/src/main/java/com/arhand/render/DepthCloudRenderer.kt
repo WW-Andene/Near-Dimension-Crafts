@@ -83,6 +83,12 @@ class DepthCloudRenderer(private val store: PointCloudStore? = null) : GLSurface
         aConfLoc2     = GLES30.glGetAttribLocation(program, "aConf")
     }
 
+    /** Deletes all GL objects allocated in [init]. Safe to call multiple times. */
+    fun release() {
+        if (vboId[0] != 0) { GLES30.glDeleteBuffers(1, vboId, 0); vboId[0] = 0; vboAllocated = 0 }
+        if (program != 0) { GLES30.glDeleteProgram(program); program = 0 }
+    }
+
     fun updateAndDraw(points: FloatArray, view: FloatArray, proj: FloatArray) {
         if (program == 0) init()
         val n = points.size / 4

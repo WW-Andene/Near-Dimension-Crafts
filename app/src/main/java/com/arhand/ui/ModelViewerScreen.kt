@@ -44,6 +44,12 @@ fun ModelViewerScreen(
     loadedAsset: com.arhand.mocap.LoadedAsset? = null
 ) {
     val viewerRenderer = remember { ModelViewerRenderer() }
+    // Captured from the factory below so the DisposableEffect can release GL resources on
+    // the GL thread when this screen leaves composition — a fresh ModelViewerRenderer + GL
+    // context are created each time this screen is entered (see ENGINE_ARCHITECTURE.md §7.2),
+    // and without this, repeated navigation to this screen within one process lifetime never
+    // frees the previous instance's GL objects.
+    var glSurface by remember { mutableStateOf<GLSurfaceView?>(null) }
 
     // Keep renderer in sync with the latest mesh and live data
     LaunchedEffect(meshPositions) {
@@ -52,6 +58,12 @@ fun ModelViewerScreen(
     // ARCH-3 — Update live fields every recomposition (driven by State from AppViewModel)
     viewerRenderer.retargetResult = retargetResult
     viewerRenderer.loadedAsset    = loadedAsset
+
+    DisposableEffect(Unit) {
+        onDispose {
+            glSurface?.queueEvent { viewerRenderer.release() }
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0A0B0E))) {
 
@@ -115,7 +127,7 @@ fun ModelViewerScreen(
                         val dy = e.getY(0) - e.getY(1)
                         return hypot(dx, dy)
                     }
-                }
+                }.also { glSurface = it }
             },
             update = { /* renderer state updated via @Volatile fields */ }
         )

@@ -69,6 +69,7 @@ class LiveMeshRenderer {
     // ─── Public API ───────────────────────────────────────────────────────────
 
     fun init() {
+        if (program != 0) return
         program = buildProg(ShaderPrograms.PHONG_VERT, ShaderPrograms.PHONG_FRAG)
         GLES30.glGenVertexArrays(1, vao,     0)
         GLES30.glGenBuffers(1,    posVbo,    0)

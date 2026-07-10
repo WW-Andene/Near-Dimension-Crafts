@@ -148,6 +148,7 @@ class HandRenderer {
     }
 
     fun init() {
+        if (phongProgram != 0) return
         phongProgram  = compileProgram(ShaderPrograms.PHONG_VERT,  ShaderPrograms.PHONG_FRAG)
         basicProgram  = compileProgram(ShaderPrograms.BASIC_VERT,  ShaderPrograms.BASIC_FRAG)
         lineProgram   = compileProgram(ShaderPrograms.LINE_VERT,   ShaderPrograms.LINE_FRAG)
@@ -161,6 +162,20 @@ class HandRenderer {
         GLES30.glGenBuffers(1, dotsScratchVbo, 0)
 
         cacheLocations()
+    }
+
+    /** Deletes all GL objects allocated in [init]. Safe to call multiple times. */
+    fun release() {
+        if (meshVao[0] != 0) { GLES30.glDeleteVertexArrays(1, meshVao, 0); meshVao[0] = 0 }
+        if (meshVbo[0] != 0 || meshVbo[1] != 0) { GLES30.glDeleteBuffers(2, meshVbo, 0); meshVbo[0] = 0; meshVbo[1] = 0 }
+        if (meshIbo[0] != 0) { GLES30.glDeleteBuffers(1, meshIbo, 0); meshIbo[0] = 0 }
+        if (linesScratchVbo[0] != 0) { GLES30.glDeleteBuffers(1, linesScratchVbo, 0); linesScratchVbo[0] = 0 }
+        if (dotsScratchVbo[0] != 0) { GLES30.glDeleteBuffers(1, dotsScratchVbo, 0); dotsScratchVbo[0] = 0 }
+        if (phongProgram != 0) { GLES30.glDeleteProgram(phongProgram); phongProgram = 0 }
+        if (basicProgram != 0) { GLES30.glDeleteProgram(basicProgram); basicProgram = 0 }
+        if (lineProgram != 0) { GLES30.glDeleteProgram(lineProgram); lineProgram = 0 }
+        if (dashLineProgram != 0) { GLES30.glDeleteProgram(dashLineProgram); dashLineProgram = 0 }
+        if (cyberPointsProgram != 0) { GLES30.glDeleteProgram(cyberPointsProgram); cyberPointsProgram = 0 }
     }
 
     private var currentLms: HandLandmarks? = null

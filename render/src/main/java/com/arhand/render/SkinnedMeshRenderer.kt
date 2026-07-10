@@ -98,6 +98,7 @@ class SkinnedMeshRenderer {
     }
 
     fun init() {
+        if (skinnedProgram != 0) return
         skinnedProgram = buildProg(SKINNED_VERT, SKINNED_FRAG)
         ghostProgram   = buildProg(ShaderPrograms.PHONG_VERT, ShaderPrograms.PHONG_FRAG)
 

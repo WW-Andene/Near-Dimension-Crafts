@@ -57,6 +57,7 @@ class CameraPassthroughRenderer {
     private lateinit var quadBuffer: FloatBuffer
 
     fun init() {
+        if (programId != 0) return
         quadBuffer = ByteBuffer
             .allocateDirect(quadVerts.size * 4)
             .order(ByteOrder.nativeOrder())
@@ -158,9 +159,9 @@ class CameraPassthroughRenderer {
     }
 
     fun release() {
-        if (vboId     != 0) GLES30.glDeleteBuffers(1,  intArrayOf(vboId),      0)
-        if (textureId != 0) GLES30.glDeleteTextures(1, intArrayOf(textureId),  0)
-        if (programId != 0) GLES30.glDeleteProgram(programId)
+        if (vboId     != 0) { GLES30.glDeleteBuffers(1,  intArrayOf(vboId),     0); vboId = 0 }
+        if (textureId != 0) { GLES30.glDeleteTextures(1, intArrayOf(textureId), 0); textureId = 0 }
+        if (programId != 0) { GLES30.glDeleteProgram(programId); programId = 0 }
         textureInitialised = false
     }
 

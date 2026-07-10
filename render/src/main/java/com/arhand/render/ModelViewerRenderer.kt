@@ -66,6 +66,11 @@ class ModelViewerRenderer : GLSurfaceView.Renderer {
         GLES30.glEnable(GLES30.GL_BLEND)
         GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
 
+        // release() before (re)allocating: onSurfaceCreated can fire again after EGL context
+        // recreation (see ARRenderer.onSurfaceCreated for the full rationale) — without this,
+        // skinnedRenderer's own re-entrancy guard would skip re-init on a stale handle from a
+        // now-dead context, leaving it unrenderable until the whole screen is torn down.
+        release()
         phongProgram = buildProg(ShaderPrograms.PHONG_VERT, ShaderPrograms.PHONG_FRAG)
         GLES30.glGenBuffers(1, vboHandle, 0)
         skinnedRenderer.init()   // ARCH-3

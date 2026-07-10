@@ -59,6 +59,7 @@ class BodySkeletonRenderer {
     fun update(lms: PoseLandmarks?) { pending = lms }
 
     fun init() {
+        if (lineProgram != 0) return
         lineProgram   = compileProgram(ShaderPrograms.DASH_LINE_VERT, ShaderPrograms.DASH_LINE_FRAG)
         pointsProgram = compileProgram(ShaderPrograms.POINTS_VERT,    ShaderPrograms.CYBER_POINT_FRAG)
 
@@ -78,6 +79,13 @@ class BodySkeletonRenderer {
         ptPosLoc   = GLES30.glGetAttribLocation( pointsProgram, "aPosition")
 
         GLES30.glGenBuffers(1, scratchVbo, 0)
+    }
+
+    /** Deletes all GL objects allocated in [init]. Safe to call multiple times. */
+    fun release() {
+        if (scratchVbo[0] != 0) { GLES30.glDeleteBuffers(1, scratchVbo, 0); scratchVbo[0] = 0 }
+        if (lineProgram != 0) { GLES30.glDeleteProgram(lineProgram); lineProgram = 0 }
+        if (pointsProgram != 0) { GLES30.glDeleteProgram(pointsProgram); pointsProgram = 0 }
     }
 
     fun draw(

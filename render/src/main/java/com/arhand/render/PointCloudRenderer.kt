@@ -20,6 +20,7 @@ class PointCloudRenderer {
     private var vboCapacityFloats = 0
 
     fun init() {
+        if (program != 0) return
         program = compileProgram(ShaderPrograms.POINTS_VERT, ShaderPrograms.POINTS_FRAG)
         GLES30.glGenBuffers(1, vbo, 0)
     }

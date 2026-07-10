@@ -197,13 +197,29 @@ class ARRenderer(private val perfMonitor: PerfMonitor) : GLSurfaceView.Renderer 
         GLES30.glEnable(GLES30.GL_BLEND)
         GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA)
 
+        // release() before init() on every (re)call: onSurfaceCreated fires again after any
+        // EGL context recreation (backgrounding without preserveEGLContextOnPause, rotation,
+        // or device-specific GLSurfaceView quirks). release() is always safe to call on an
+        // unused or already-released renderer (each guards its own deletes on handle != 0),
+        // so this is correct whether the previous context is genuinely dead (the common case —
+        // its GL objects were already freed by the driver, this just resets the stale Kotlin
+        // handles to 0) or still alive (the release actually frees it, avoiding a leak). This
+        // is what makes init()'s own re-entrancy guards (`if (x != 0) return`) safe to rely on
+        // here instead of a hazard that could skip re-initialization after context loss.
+        cameraPassthrough.release()
         cameraPassthrough.init()
-        handRenderers.forEach { it.init() }
+        handRenderers.forEach { it.release(); it.init() }
+        depthMeshRenderer.release()
         depthMeshRenderer.init()
+        skinnedMeshRenderer.release()
         skinnedMeshRenderer.init()
+        liveMeshRenderer.release()
         liveMeshRenderer.init()
+        bodySkeletonRenderer.release()
         bodySkeletonRenderer.init()
+        faceSkeletonRenderer.release()
         faceSkeletonRenderer.init()
+        depthCloudRenderer.release()
         depthCloudRenderer.init()
 
         // ViewModel so ArDepthSession.setCameraTextureName() can be called.

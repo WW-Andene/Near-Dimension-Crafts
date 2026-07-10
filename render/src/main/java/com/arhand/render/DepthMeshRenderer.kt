@@ -42,6 +42,7 @@ class DepthMeshRenderer {
     private val lineColor = floatArrayOf(0f, 1f, 0.898f, 0.4f)
 
     fun init() {
+        if (phongProgram != 0) return
         phongProgram = buildProg(ShaderPrograms.PHONG_VERT, ShaderPrograms.PHONG_FRAG)
         lineProgram  = buildProg(ShaderPrograms.LINE_VERT,  ShaderPrograms.LINE_FRAG)
 
