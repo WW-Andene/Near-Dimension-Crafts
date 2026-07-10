@@ -156,9 +156,40 @@ Also effectively blocked, lower priority, deferred rather than urgent:
 - §6.2 (`WhiteScreenOverlay`) — same shape as the blocked items above (needs a "was a one-shot
   flash actually wanted" answer), just lower stakes.
 
+## Phase 8 — Deeper architectural change (bigger than bug-fixing, addresses root shape not symptoms)
+
+These don't fix a specific finding from `ENGINE_ARCHITECTURE.md` — they change the shape that
+produced most of those findings, so the same class of bug is structurally harder to reintroduce
+later. Bigger, more invasive, sequenced after Phases 0-7 land and are verified green.
+
+1. **Timestamped/correlated message passing instead of shared mutable fields for cross-cadence
+   data.** Directly replaces §5.2's SlamLite→DA2 fix (which just makes that one pair correct) with
+   a general mechanism: tag Core-layer values with the timestamp/frame-id they were computed for,
+   and use `Flow.combine`/a custom correlator to only pair values whose timestamps actually match,
+   instead of reading "whatever's freshest right now." Fixes §5.1/§5.4/§5.5's staleness gaps as a
+   side effect of the same mechanism, rather than three separate timestamp-check patches.
+2. **A sealed-class state machine for the scan lifecycle**, replacing the current
+   `scanActive`/`freeformActive`/`isScanActive`/`isFreeformActive`/`depthMode` boolean set that
+   has to be hand-synchronized across ~9 call sites (the exact shape that caused §10.3's
+   posed/freeform asymmetry). One transition function, invalid combinations unrepresentable.
+3. **Narrow `AppViewModel`'s visibility to raw tracking streams.** Make `handPipeline`,
+   `bodyPipeline`, and `CameraFrameProvider.frames` inaccessible outside `SpatialFrameProducer`
+   (Kotlin `internal`/module boundaries, not just convention) so the double-writer bugs (§4.4,
+   §5.3) become compile errors if reintroduced, not just a rule someone has to remember.
+4. **Make retargeters pure.** `BoneRetargeter.retarget()`/`BodyRetargeter.retarget()` take
+   previous-state explicitly and return `(newState, result)` instead of mutating internal EMA/
+   grace-period fields — removes the possibility of two callers silently sharing or corrupting
+   one stateful instance.
+5. **Decompose `AppViewModel` and `FusedDepthSource`** into smaller, single-responsibility
+   coordinators once 1-4 reduce how much cross-cutting state they need to hold directly.
+
+Sequenced last because 1-4 are genuine redesigns of working code, higher risk, and only worth
+doing once the concrete bugs in Phases 0-7 are fixed and confirmed — redesigning underneath
+unfixed bugs makes them harder to isolate, not easier.
+
 ## Recommended order
 
-Phase 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7, then the blocked items once you've answered the four
+Phase 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8, then the blocked items once you've answered the four
 product questions, then the deferred/lower-priority list opportunistically. Phases 0-4 are all
 independent of each other technically and could be reordered or parallelized; the sequence above
 is by impact (fix what's visibly broken first), not by dependency.
