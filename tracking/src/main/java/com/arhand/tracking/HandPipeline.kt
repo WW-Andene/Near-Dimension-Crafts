@@ -23,7 +23,9 @@ data class ProcessedHand(
  * raw → clampDelta → TDF → OcclusionEngine → OEF → accepted
  *
  * Also manages:
- *   - Grace period (8 frames) on hand loss before slot cleared
+ *   - Grace period (8 frames) on hand loss before slot cleared — velocity-extrapolated
+ *     (ENGINE_ARCHITECTURE.md §17.2), not a static freeze, fading to a hold after
+ *     OcclusionEngine.VEL_EXTRAP_MAX_SEC
  *   - Flicker rejection (PERSIST_MIN = 2 frames) on re-appearance
  *   - Reset of OEF + TDF on confirmed hand loss
  *
@@ -50,12 +52,16 @@ data class ProcessedHand(
  *   frame of each tracking session). Fixed by snapshotting `prevLms[slot]` into
  *   `prevForGate` before the overwrite.
  *
- * FIX-3 — predictSkipFrame dt uses frame timestamp, not OcclusionEngine tMs.
- *   OcclusionEngine tMs is updated on inference frames only. On skip frames the stale
- *   tMs causes the dt calculation to extrapolate over the entire since-last-inference
- *   interval rather than just the current inter-frame gap. Clamping dt to the actual
- *   inter-frame duration (nowMs - lastPredictMs) keeps the skip-frame projection
- *   physically correct.
+ * FIX-3 (superseded by ENGINE_ARCHITECTURE.md §17.1) — predictSkipFrame() originally used its
+ *   own `lastPredictMs` per-call timestamp instead of OcclusionEngine's velState.tMs, on the
+ *   theory that tMs (updated on real-detection frames only) would extrapolate over the whole
+ *   since-last-inference gap instead of just one inter-frame step. In practice this
+ *   under-extrapolated: each call re-based from the same frozen `activeLms[slot]` using only
+ *   the last call-to-call delta, so motion advanced one small step then stayed there for the
+ *   rest of a skip run instead of continuing to move. [predictSkipFrame] and [update]'s
+ *   whole-hand-dropout branch now both use velState.tMs directly (via [extrapolateVelocity]),
+ *   capped at [OcclusionEngine.VEL_EXTRAP_MAX_SEC] — the cap alone already prevents the
+ *   runaway-drift concern FIX-3 was written for, without needing a second timestamp to track.
  */
 class HandPipeline {
 
@@ -118,9 +124,6 @@ class HandPipeline {
     private val activeLms     = arrayOfNulls<HandLandmarks>(NUM_SLOTS)
     private val frozenLms     = arrayOfNulls<HandLandmarks>(NUM_SLOTS)
 
-    // FIX-3: track last predict timestamp per slot so skip-frame dt is correct
-    private val lastPredictMs = LongArray(NUM_SLOTS) { 0L }
-
     // BUG-6: track last known mirrorX so predictSkipFrame() uses the correct camera orientation
     private var lastMirrorX: Boolean = true
 
@@ -154,10 +157,28 @@ class HandPipeline {
                         activeLms[slot]    = null
                         prevLms[slot]      = null
                         frozenLms[slot]    = null
-                        lastPredictMs[slot] = 0L
                     }
                 } else {
-                    activeLms[slot]?.let { output.add(ProcessedHand(it, slot, classifySide(it, mirrorX))) }
+                    // ENGINE_ARCHITECTURE.md §17.2 — this used to hold activeLms[slot] at a
+                    // hard static freeze for the whole grace window (~8 frames) whenever
+                    // MediaPipe stopped reporting the hand at all (heavier occlusion than the
+                    // per-joint case above handles). Extrapolate by each landmark's own last
+                    // known velocity instead, fading to a full freeze after
+                    // OcclusionEngine.VEL_EXTRAP_MAX_SEC — same shape as [predictSkipFrame]'s
+                    // fix below, applied to real occlusion instead of throttled skip frames.
+                    // velState[WRIST] is used as the "time since last real detection" reference
+                    // (all landmarks' velState.tMs advance together in updateVelocity(), which
+                    // only runs when raw != null — unlike lastPredictMs[slot], which
+                    // predictSkipFrame() also advances and so can't tell "last real frame" from
+                    // "last predicted frame").
+                    activeLms[slot]?.let { base ->
+                        val lastRealMs = occ[slot].velState[LM.WRIST].tMs
+                        val dtSec = if (lastRealMs > 0L)
+                            ((nowMs - lastRealMs) * 0.001f).coerceIn(0f, OcclusionEngine.VEL_EXTRAP_MAX_SEC)
+                        else 0f
+                        val extrapolated = extrapolateVelocity(slot, base, dtSec)
+                        output.add(ProcessedHand(extrapolated, slot, classifySide(extrapolated, mirrorX)))
+                    }
                 }
                 continue
             }
@@ -234,7 +255,6 @@ class HandPipeline {
 
             prevLms[slot]       = constrained
             activeLms[slot]     = constrained
-            lastPredictMs[slot] = nowMs
 
             // FIX-2: motion gate — direct frame-diff L2 distance, zero lag.
             // Sum of squared per-landmark displacements from previous accepted frame.
@@ -286,7 +306,6 @@ class HandPipeline {
             prevLms[slot]        = null
             activeLms[slot]      = null
             frozenLms[slot]      = null
-            lastPredictMs[slot]  = 0L
         }
         _processed.value = emptyList()
         _gestures.value  = listOf(null, null)
@@ -324,37 +343,58 @@ class HandPipeline {
     }
 
     /**
-     * Called on frames where FrameThrottler skips inference.
-     * Projects each active landmark forward using OcclusionEngine velocity.
+     * Called on frames where FrameThrottler skips inference. ENGINE_ARCHITECTURE.md §17.1 —
+     * this had zero callers anywhere in the repo until wired into
+     * [com.arhand.feature.spatial.SpatialFrameProducer]'s throttle-skip branch: every skipped
+     * frame previously left [processed] completely unchanged, holding a static frozen position
+     * for the whole skipped interval (up to `maxEvery` frames, more when idle-doubled) before
+     * jumping to the next real detection — a visible stutter on every ordinary throttle cycle,
+     * not just occlusion.
      *
-     * FIX-3: dt is clamped to (nowMs - lastPredictMs[slot]) so we extrapolate only
-     * over the actual inter-frame gap, not the full since-last-inference interval.
-     * At 30fps that cap is ~33ms; at inferEvery=4 the old code could extrapolate
-     * over 133ms using a stale OcclusionEngine tMs, producing visible landmark drift.
+     * Projects each active landmark forward using [OcclusionEngine]'s per-landmark velocity,
+     * via the same [extrapolateVelocity] helper [update]'s whole-hand-occlusion branch uses.
+     *
+     * Previously computed dt as the delta since the *last call to this function or [update]*
+     * (`nowMs - lastPredictMs[slot]`), re-based from the frozen `activeLms[slot]` every time —
+     * on consecutive skip frames this under-extrapolated: each call added only one small
+     * inter-frame nudge from the same fixed base rather than the cumulative elapsed time since
+     * the last *real* detection, so motion advanced one small step then effectively re-froze
+     * for the rest of the skip window. Using [OcclusionEngine.velState]'s own timestamp (only
+     * advanced by real detections in [OcclusionEngine.updateVelocity]) instead gives a
+     * cumulative, correctly-fading extrapolation across the whole gap.
      */
     fun predictSkipFrame(nowMs: Long) {
         val output = mutableListOf<ProcessedHand>()
         for (slot in 0 until NUM_SLOTS) {
             val base = activeLms[slot] ?: continue
-            val dtFrame = if (lastPredictMs[slot] > 0L)
-                (nowMs - lastPredictMs[slot]).coerceIn(0L, 50L).toFloat() * 0.001f
-            else
-                0f
-            lastPredictMs[slot] = nowMs
-
-            val predicted = base.mapIndexed { i, lm ->
-                val v = occ[slot].velState[i]
-                if (dtFrame <= 0f || v.tMs <= 0L) return@mapIndexed lm
-                // Fade velocity to zero over VEL_EXTRAP_MAX_SEC to avoid runaway drift
-                val fade = (1f - dtFrame / OcclusionEngine.VEL_EXTRAP_MAX_SEC).coerceIn(0f, 1f)
-                lm.copy(
-                    x = lm.x + v.vx * dtFrame * fade,
-                    y = lm.y + v.vy * dtFrame * fade,
-                    z = lm.z + v.vz * dtFrame * fade
-                )
-            }
+            val lastRealMs = occ[slot].velState[LM.WRIST].tMs
+            val dtSec = if (lastRealMs > 0L)
+                ((nowMs - lastRealMs) * 0.001f).coerceIn(0f, OcclusionEngine.VEL_EXTRAP_MAX_SEC)
+            else 0f
+            val predicted = extrapolateVelocity(slot, base, dtSec)
             output.add(ProcessedHand(predicted, slot, classifySide(predicted, mirrorX = lastMirrorX)))
         }
         if (output.isNotEmpty()) _processed.value = output
+    }
+
+    /**
+     * Extrapolate every landmark of [base] by its own last known velocity ([OcclusionEngine]'s
+     * per-landmark EMA velocity), fading to zero over [OcclusionEngine.VEL_EXTRAP_MAX_SEC] so a
+     * long gap converges to a full freeze rather than runaway drift. Shared by [predictSkipFrame]
+     * (throttled camera frames) and [update]'s whole-hand-dropout branch (real occlusion) —
+     * same model, same fix, two different reasons a frame might have no fresh landmark data.
+     */
+    private fun extrapolateVelocity(slot: Int, base: HandLandmarks, dtSec: Float): HandLandmarks {
+        if (dtSec <= 0f) return base
+        val fade = (1f - dtSec / OcclusionEngine.VEL_EXTRAP_MAX_SEC).coerceIn(0f, 1f)
+        return base.mapIndexed { i, lm ->
+            val v = occ[slot].velState[i]
+            if (v.tMs <= 0L) lm
+            else lm.copy(
+                x = lm.x + v.vx * dtSec * fade,
+                y = lm.y + v.vy * dtSec * fade,
+                z = lm.z + v.vz * dtSec * fade
+            )
+        }
     }
 }

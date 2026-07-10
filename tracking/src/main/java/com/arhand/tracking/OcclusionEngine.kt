@@ -49,7 +49,6 @@ class OcclusionEngine {
         // v22 — hold counter: minimum frames a landmark stays occluded after the signal
         // drops below LOW_THRESHOLD. Prevents brief clear readings from interrupting inference.
         const val HOLD_FRAMES        = 8
-        const val VISIBILITY_THRESHOLD = 0.5f
     }
 
     val occlusionProb = FloatArray(21) { 0f }
@@ -213,9 +212,14 @@ class OcclusionEngine {
         if (lms.size < 21 || confidence < 0.3f) return lms
         val occluded = detectOcclusion(lms)
 
-        for (i in 0 until 21) {
-            if (lms[i].visibility < VISIBILITY_THRESHOLD) occluded[i] = true
-        }
+        // ENGINE_ARCHITECTURE.md §17.2 — removed a per-landmark visibility check here
+        // (`if (lms[i].visibility < VISIBILITY_THRESHOLD) occluded[i] = true`). MediaPipe's
+        // Hand Landmarker (unlike Pose Landmarker) never populates real per-landmark
+        // visibility — HandTracker.kt's `lm.visibility().orElse(1.0f)` resolves to 1.0 on
+        // effectively every landmark, every frame, so this check never fired. Occlusion
+        // detection genuinely rests on detectOcclusion()'s three 3D self-consistency checks
+        // only (segment-length ratio, Z-chain reversal, palm-plane dot product) — removing
+        // the dead check is honest about that instead of implying a fourth real signal exists.
 
         updateVelocity(lms, occluded, nowMs)
 

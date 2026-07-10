@@ -469,13 +469,49 @@ an explicit decision (documented in `ENGINE_ARCHITECTURE.md` alongside the fix),
    checked by direct comparison against `ArCoreDepthSource.onDrawFrame`'s own per-pixel formula,
    which does the identical calculation for its depth cloud.
 
+## Phase 11 — Perceived-quality dig: latency and occlusion (§17.1, §17.2) — DONE (low-light §17.3 deferred, see below)
+
+Directly requested ("dig deeper" + three on-device symptom reports: skeleton lag, hidden parts
+not extrapolated, near-dark detection). Investigated by tracing the real pipeline rather than
+guessing, wrote up all three as ENGINE_ARCHITECTURE.md §17, then implemented the first two per
+explicit direction ("finish 1. and 2. first") — §17.3 (low-light) is scoped but intentionally not
+implemented yet, see its own write-up for why.
+
+1. **§17.1 — half-rate hand-inference baseline**: `FrameThrottler` started every session at
+   `inferEvery = 2` unconditionally, not from measured GPU cost. Now starts at `minEvery` and
+   sheds down under real load.
+2. **§17.1 — `HandPipeline.predictSkipFrame()` had zero callers**, discovered while implementing
+   (1): every throttled-skip frame left the rendered hand frozen for the whole skip interval, a
+   visible stutter on *every* ordinary throttle cycle — likely bigger than (1) alone. Wired into
+   `SpatialFrameProducer.processBitmap()`'s skip branch. Also fixed a real under-extrapolation
+   bug found in the process (dt was computed call-to-call instead of cumulatively since the last
+   real detection, causing motion to advance one small step then re-freeze); the fix factored
+   into a shared `extrapolateVelocity` helper reused by (3) below.
+3. **§17.2 — dead hand-visibility signal**: removed `OcclusionEngine`'s per-landmark visibility
+   check — MediaPipe's Hand Landmarker never populates real visibility (unlike Pose Landmarker),
+   so it was inert; occlusion detection is honestly 3-heuristic-only now.
+4. **§17.2 — whole-hand dropout was a hard static freeze**: now uses the same
+   `extrapolateVelocity` helper from (2) during the `GRACE_FRAMES` window instead of freezing,
+   fading to a hold after `VEL_EXTRAP_MAX_SEC` — same shape as §8.1's BVH fix, one layer up.
+   **Not done**: body tracking still has no equivalent velocity-prediction layer (§17.2's option
+   (c)) — scoped as its own pass since it'd mean adding per-joint velocity-EMA state to
+   `BodyRetargeter`, a larger change to its pure-retargeter design (§8.4) than bundling in here.
+
+**§17.3 (low-light CLAHE/exposure) intentionally not started this phase** — real new engineering
+(applying CLAHE to the tracking-facing image, manual exposure override, both needing dark-scene
+gating to avoid changing behavior in normal light) with regression risk this environment can't
+verify without a device. Scoped in ENGINE_ARCHITECTURE.md §17.3 with a sequenced fix plan
+((a) applied+gated CLAHE → (b) manual exposure → (c) gamma/unsharp → (d) multi-frame stacking,
+each independently revertable), to be picked up as its own pass.
+
 ## Recommended order
 
-Phase 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10. Phases 0-4 are all independent of each other
-technically and could be reordered or parallelized; the sequence above is by impact (fix what's
-visibly broken first), not by dependency. Phases 9 and 10 were both reactive (direct user
-requests) rather than part of the original sequence. All phases, including §4.11's real fix, are
-now done. The remaining open items are the narrow, explicitly-scoped-out non-goals noted inline
-above (§8.2's inherent BVH-format limitation, §9's larger recomposition restructuring, a few
-named exclusions inside Phase 8) — none of them a deferred "big fix," all of them a documented
-line drawn on purpose.
+Phase 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11. Phases 0-4 are all independent of each
+other technically and could be reordered or parallelized; the sequence above is by impact (fix
+what's visibly broken first), not by dependency. Phases 9, 10, and 11 were all reactive (direct
+user requests) rather than part of the original sequence. Remaining open items: the narrow,
+explicitly-scoped-out non-goals noted inline throughout (§8.2's inherent BVH-format limitation,
+§9's larger recomposition restructuring, a few named exclusions inside Phase 8, §17.2's body
+motion-prediction gap) and §17.3's low-light pipeline in full — none of them a deferred "big fix"
+left implicit, all of them a documented line drawn on purpose, with §17.3 the one still awaiting
+its own implementation pass.

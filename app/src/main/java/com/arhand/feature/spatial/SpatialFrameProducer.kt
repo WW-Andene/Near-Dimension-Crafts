@@ -277,7 +277,19 @@ class SpatialFrameProducer(
         val ts    = System.currentTimeMillis()
         val nowMs = ts
 
-        if (!frameThrottler.shouldInfer()) return
+        // ENGINE_ARCHITECTURE.md §17.1/§17.2 — HandPipeline.predictSkipFrame() already existed,
+        // fully implemented (velocity extrapolation with fade, correct dt-clamping per its own
+        // FIX-3 doc comment) but had zero callers anywhere in the repo. Without it, every frame
+        // FrameThrottler decides to skip left `handPipeline.processed` completely unchanged —
+        // the rendered hand held a static, unmoving position for the whole skipped interval
+        // (up to `maxEvery` frames, more when idle-doubled), then jumped to the next real
+        // detection. That's a visible stutter on every throttle cycle, not just full-occlusion
+        // dropout — likely the largest single contributor to reported skeleton lag/roughness,
+        // bigger than this file's own inference-rate baseline (§17.1's other fix).
+        if (!frameThrottler.shouldInfer()) {
+            handPipeline.predictSkipFrame(nowMs)
+            return
+        }
 
         val inferStart = System.currentTimeMillis()
         // clahe.lastContrastScore only feeds Scanner/FreeformScanner's quality gating

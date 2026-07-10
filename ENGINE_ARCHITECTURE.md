@@ -914,7 +914,7 @@ comparing it against a low-light prototype (`DarkVision.jsx`, a browser demo of 
 multi-frame-stacking + multi-scale-CLAHE dark-scene enhancement) the user pointed to as an example
 of depth/detail this app's own low-light path is missing.
 
-### 17.1 Hand tracking runs at half camera rate by default, before any GPU-budget pressure exists
+### 17.1 Hand tracking runs at half camera rate by default, before any GPU-budget pressure exists — DONE, plus a bigger related find
 
 `FrameThrottler` (`util/FrameThrottler.kt:25`) initializes `inferEvery = 2` — MediaPipe hand
 inference only runs on every *other* camera frame from the start, not because the GPU is
@@ -935,17 +935,35 @@ the issue is the *stacked default*: half-rate sampling as the unconditional star
 filters that are themselves tuned for smoothness over responsiveness, with no on-device
 measurement in this environment to say where the resulting total lag actually lands.
 
-**Fix options**: (a) Change `FrameThrottler`'s initial `inferEvery` to `minEvery` (1) instead of a
-hardcoded 2, letting `reportInferenceMs` shed *down* from full rate under real measured load
-instead of starting pre-shed — matches the class's own doc ("MIN=1 MAX=4... adjusts based on last
-inference duration") more literally than the current hardcoded-2 start. (b) Tighten
-`OEF_MIN_CUTOFF_XY`/`OEF_BETA_XY` for less smoothing lag at the cost of more visible jitter —
-a genuine UX tradeoff, not a free win, and not guessable correctly without on-device feel-testing.
-Recommended: (a) alone first — it's a one-line change with a clear, defensible rationale (start
-at the class's own stated `minEvery`, let real measured cost shed it down, not a knob need to be
-hand-tuned blind) — then reassess (b) only if lag is still reported after (a) ships and is tested.
+**Fix applied**: option (a) — `FrameThrottler.inferEvery`/`countdown` now initialize to `minEvery`
+instead of a hardcoded 2 (`reset()` too), letting `reportInferenceMs` shed *down* from full rate
+under real measured load instead of starting pre-shed. Option (b) (retuning OEF cutoff/beta) is
+still deliberately not done — a genuine UX tradeoff that needs on-device feel-testing, not a
+blind constant change.
 
-### 17.2 Occlusion inference is shallower than it looks, and one of its four signals is inert
+**A bigger related find, discovered while implementing this fix**: `HandPipeline.predictSkipFrame()`
+already existed — fully implemented, carefully commented (its own "FIX-3" doc comment), designed
+to project landmarks forward by their last known velocity on frames `FrameThrottler` decides to
+skip — but had **zero callers anywhere in the repo**. Without it, every throttled-skip frame left
+`handPipeline.processed` completely unchanged: the rendered hand held a perfectly static position
+for the entire skipped interval (up to `maxEvery` frames, more when idle-doubled), then snapped to
+the next real detection. That's a visible stutter on *every* ordinary throttle cycle, independent
+of occlusion — plausibly the single largest contributor to reported skeleton lag/roughness, bigger
+than the half-rate-baseline issue above.
+
+**Fix applied**: wired `handPipeline.predictSkipFrame(nowMs)` into
+`SpatialFrameProducer.processBitmap()`'s throttle-skip branch. While wiring it in, also found and
+fixed a real bug in `predictSkipFrame()` itself: it computed `dt` as the delta since the *previous
+call* to itself (`nowMs - lastPredictMs[slot]`), re-based from the same frozen `activeLms[slot]`
+every time — on consecutive skip frames this under-extrapolated, advancing one small step on the
+first skip frame and then effectively re-freezing for the rest of the skip run instead of
+continuing to move. Fixed by using `OcclusionEngine.velState`'s own timestamp (only advanced by
+real detections) as the "time since last real detection" reference instead — cumulative and
+correctly fading over `VEL_EXTRAP_MAX_SEC`, and removes the now-redundant `lastPredictMs` field
+entirely. The same corrected extrapolation (factored into a shared `extrapolateVelocity` helper)
+is also used by §17.2's whole-hand-dropout fix below — one model, two call sites.
+
+### 17.2 Occlusion inference is shallower than it looks, and one of its four signals is inert — DONE (a, b); (c, body) not done
 
 `OcclusionEngine.detectOcclusion()` combines four checks, but one is dead: `HandTracker.kt:138`
 sets `visibility = lm.visibility().orElse(1.0f)`. MediaPipe's **Hand** Landmarker (unlike Pose
@@ -980,17 +998,26 @@ body part's plausible pose from the visible rest of the skeleton) — the existi
 short-horizon linear/FK continuation, which degrades to a frozen or drifting guess for anything
 beyond brief (~200ms, `VEL_EXTRAP_MAX_SEC`) occlusion, by design.
 
-**Fix options**: (a) Remove or replace the dead visibility check in `OcclusionEngine` with
-something that actually reflects Hand Landmarker's real signal — e.g., the tracked hand's overall
-detection score if MediaPipe exposes one, or drop the check and document that hand occlusion
-detection is 3-heuristic-only, not four, so nobody re-relies on a signal that isn't real. (b)
-Extend whole-hand dropout (`raw == null` path) to hold a decaying velocity-extrapolated pose for
-a bounded window instead of a hard static freeze, mirroring `inferLandmark()`'s own fade-to-zero
-model — same shape fix as §8.1's BVH hold-at-last-known, applied one layer up. (c) Give body
-tracking a velocity-extrapolation layer analogous to `OcclusionEngine`, instead of a hard freeze.
-None of these are "make the app see through occlusion" — that would need a genuinely different
-approach (a learned prior over hand/body pose space) — they're honest fixes to what's already
-attempted, not a promise of true occlusion-invariant tracking.
+**Fix applied**: (a) removed the dead visibility check from `OcclusionEngine.applyInference()`
+entirely (and its now-unused `VISIBILITY_THRESHOLD` constant) rather than leave a check that
+implies a fourth real signal exists when it doesn't — occlusion detection is honestly
+3-heuristic-only now, matching what actually runs. (b) `HandPipeline.update()`'s whole-hand-dropout
+branch (`raw == null`, within the `GRACE_FRAMES` window) now extrapolates by each landmark's last
+known velocity via the same `extrapolateVelocity` helper §17.1's `predictSkipFrame` fix uses,
+fading to a full freeze after `VEL_EXTRAP_MAX_SEC` instead of holding a hard static freeze for the
+whole grace window — same shape as §8.1's BVH hold-at-last-known, applied one layer up, at the
+tracking layer instead of the export layer.
+
+**Not done**: (c) body tracking still has no velocity-extrapolation layer — `BodyRetargeter`'s
+grace-period hold stays a hard freeze. Body's visibility signal is real (Pose Landmarker
+genuinely computes it, unlike Hand Landmarker), so unlike (a) there's no dead-check cleanup
+needed there; adding motion prediction would mean giving `BodyRetargeter` its own velocity-EMA
+state per joint, a large enough change to `mocap`'s pure-retargeter design (§8.4) to warrant its
+own pass rather than bundling it in here. None of (a)-(c) are "make the app see through
+occlusion" in the sense of true kinematic/prior-based inference (e.g., inferring a curled fist's
+actual finger positions from hand structure) — that would need a genuinely different approach (a
+learned prior over hand/body pose space); these are honest fixes to what's already attempted, not
+a promise of occlusion-invariant tracking.
 
 ### 17.3 CLAHE contrast enhancement is computed every scan frame but never applied to the image anyone (or MediaPipe) sees — the single biggest lever for low-light detection
 
