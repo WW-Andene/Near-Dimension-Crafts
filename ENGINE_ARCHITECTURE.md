@@ -128,6 +128,44 @@ load, each collector can miss different frames — meaning the background camera
 sees and the depth/tracking data computed for "the current frame" are not guaranteed to be the
 same physical camera frame.
 
+### 2.8 `PointCloudStore`'s own doc comment describes a threading model its actual callers don't follow
+
+`util/PointCloudStore.kt:14` states `snapshot()` "is called from the GL thread" — its actual
+callers are `AppViewModel.kt:487,490,542,545`, all inside the `handPipeline.processed.collect`
+coroutine (posed- and freeform-scan depth-integration branches), not the GL thread. The class's
+internal synchronization may or may not be adequate for the actual calling thread (not evaluated
+here) — the point is the doc comment asserts a threading contract that isn't what's actually
+happening, the same failure shape as the stale "AppViewModel is a coordinator only" comment
+found and fixed earlier this session. Worth a deliberate check of `PointCloudStore`'s internal
+locking against its *real* callers, not its documented ones.
+
+### 2.9 `sfmScale` calibration has no explicit staleness bound between ARCore callbacks
+
+`FusedDepthSource.updateScaleCalibration()` (called only from `ArcoreCallback.onPoints`)
+computes a displacement ratio between the current and previous ARCore callback to refine
+`sfmScale`. It gates on displacement *magnitude* (`arcoreDisp < 0.001f || sfmDisp < 0.5f` →
+skip) but not on *time* between the two callbacks — if ARCore callbacks are irregular under
+load, a large but old displacement could be compared against fresh SfM data, or vice versa.
+Not confirmed to cause a visible problem, just an assumption gap worth naming next to §2.5's
+similar cross-cadence findings, since it's the same category of "adjacent-in-code, not
+necessarily adjacent-in-time" issue.
+
+### 2.10 `feedFarPlaneAnchor()` compares a newly detected plane against a possibly-old ARCore depth reading
+
+`FusedDepthSource.feedFarPlaneAnchor(planeDistM)` (`FusedDepthSource.kt:432`, called from
+`SpatialFrameProducer.kt:282` when a detected plane is >3m away) uses `lastArcoreMeanDepth` as
+its "near anchor" reference. `lastArcoreMeanDepth` is written only inside
+`ArcoreCallback.onPoints` (`FusedDepthSource.kt:660`), on ARCore's own callback cadence — not
+necessarily the same moment the far-plane detection that triggers this call happened. Same
+category as §2.9: two values computed on different cadences, combined as if simultaneous.
+
+### 2.11 `rPPGSource.snsProxy` is computed every warm camera frame and read by nothing
+
+`rPPGSource.kt:186` computes `snsProxy = sqrt(variance / ampHistory.size)` every frame once
+`rPPGSource` is warm (~4s after start). Grepped the whole repo for `.snsProxy` — zero external
+readers. Small, but genuinely wasted work on every frame for the lifetime of the app, not
+gated behind any feature flag the way the CLAHE fix this session gated a similar always-on cost.
+
 ## 3. Incomplete/disconnected features — corrected from an earlier "dead code" misclassification
 
 **These are not dead code and must not be deleted.** An earlier version of this document (and
@@ -194,6 +232,32 @@ paths are what should go, once actually verified equivalent.
 remote OSC source). These are intentionally mutually exclusive by feature, not concurrent.
 Documented here specifically so a future pass applying §2's "one writer" rule mechanically
 doesn't collapse this into a bug that isn't one.
+
+### 3.5 Checked and confirmed *not* violations — recorded so the assessment reads as complete, not just a bug list
+
+Every one of these was specifically checked against §4's rule during the three research passes
+and found fine. Listed so this document reflects the whole structure that was actually examined,
+not only the parts that turned out to be wrong:
+
+- **`ARRenderer.loadedAsset` / `SpatialFrameRouter.loadedAsset`** — two fields, but one writer
+  (`AppViewModel.kt:345-346`) sets both together from the same source value; they intentionally
+  hold different representations (renderer's is `null` for the default puppet, router's is
+  always the concrete asset) rather than racing.
+- **`ARRenderer.liveMeshPositions`, `torchOn`, `depthMeshPositions`** — each has two write sites,
+  but each pair is sequential/mutually exclusive by user workflow (e.g. posed-scan completion
+  vs. freeform-scan completion for `depthMeshPositions`), not concurrent writers racing.
+- **`AppViewModel.uiState`, `scanState`** — ~20 and ~21 write sites respectively, but all via
+  `.copy()` on disjoint sub-fields from the standard multi-owner UI-state pattern; no field
+  collision found.
+- **`AppViewModel.incrementalCarver`/`incrementalTrainJob`** — reassigned across scan
+  start/cancel/complete functions, but each reassignment cancels the previous job first —
+  standard lifecycle management, not a race.
+- **`motionRecorder.pushFrame`, `oscStreamer.sendFrame`, `renderer.updateBodyPose`,
+  `renderer.applyMorphWeights`** — each confirmed exactly one production call site (all via
+  `SpatialFrameRouter`), matching this session's earlier hand-retarget-duplicate fix; no
+  leftover second call site was found for any of them.
+- **`CLAHEAnalyzer`** — confirmed exactly the two known consumers (`Scanner`/`FreeformScanner`
+  quality gating via `AppViewModel`), no missed third consumer anywhere in the repo.
 
 ## 4. The rule (kept from the previous version, still the organizing principle)
 
