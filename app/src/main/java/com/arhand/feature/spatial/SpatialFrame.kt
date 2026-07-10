@@ -14,7 +14,7 @@ import com.arhand.util.Vec3
  * SpatialFrame — the unified per-frame truth object.
  *
  * Every sensing pipeline (hand tracking, body tracking, face tracking, structured
- * light depth, ARCore world frame, monocular depth, scene understanding, rPPG)
+ * light depth, ARCore world frame, monocular depth, scene understanding)
  * contributes to a single immutable frame that all consumers (OSC, BVH, renderer,
  * scanner, HUD) read from.
  *
@@ -29,8 +29,6 @@ import com.arhand.util.Vec3
  *   [planes]         — RANSAC detected floor/wall/ceiling planes
  *   [slamPose]       — accumulated SLAM camera pose (tx,ty,tz,rx,ry,rz)
  *   [slamDelta]      — per-frame camera motion (tx,ty,rz)
- *   [rppgAmplitude]  — BVP AC amplitude [0,1]
- *   [rppgBPM]        — estimated heart rate (BPM)
  *   [jbuDepth]       — JBU 2× upsampled depth (16×12)
  *   [fusionWeights]  — live per-channel weight snapshot for diagnostic HUD
  *   [metricSource]   — "XR" | "DA2" | "STEREO" | "NONE"
@@ -103,22 +101,6 @@ data class SpatialFrame(
     /** Per-frame camera motion delta from SlamLite. */
     val slamDelta: SlamLite.PoseDelta?,
 
-    // ── v27 Layer 2: biometrics ───────────────────────────────────────────────
-
-    /** rPPG blood-volume pulse AC amplitude as fraction of DC (0–1). */
-    val rppgAmplitude: Float,
-
-    /** rPPG estimated heart rate in BPM. 0 until warm (~4 s). */
-    val rppgBPM:       Int,
-
-    /**
-     * ENGINE_ARCHITECTURE.md §10.5 — SNS (sympathetic nervous system) arousal proxy:
-     * rolling standard deviation of [rppgAmplitude] over the last ~32 frames. Higher
-     * values correlate with higher-frequency amplitude variability, a proxy for
-     * stress/arousal. 0 until warm.
-     */
-    val rppgSnsProxy: Float,
-
     // ── v27 Layer 1: joint-bilateral upsampled depth ──────────────────────────
 
     /** JBU 2× upsampled depth grid (16×12, row-major). Null when SL depth unavailable. */
@@ -141,9 +123,9 @@ data class SpatialFrame(
     val activePipelineCount:  Int,
 
     // ── Cross-cadence age (ENGINE_ARCHITECTURE.md §5.1) ───────────────────────
-    // fusionWeights/metricGrounded/rppg* above are written by Core-layer code at raw-frame
-    // rate but this SpatialFrame is assembled at the throttled hand-inference rate — these
-    // ages (milliseconds since each value was actually last computed) let a consumer see how
+    // fusionWeights/metricGrounded above are written by Core-layer code at raw-frame rate
+    // but this SpatialFrame is assembled at the throttled hand-inference rate — these ages
+    // (milliseconds since each value was actually last computed) let a consumer see how
     // synchronised (or not) they really are to [timestamp]/the bundled hand landmarks, instead
     // of silently assuming "whatever Core last computed" is current. Low-risk observability
     // only, per that finding's recommended fix — no discarding/gating added without on-device
@@ -152,9 +134,7 @@ data class SpatialFrame(
     /** Milliseconds since [fusionWeights] was last recomputed. */
     val fusionWeightsAgeMs: Long = 0L,
     /** Milliseconds since [metricGrounded]/[metricSource]'s underlying ARCore callback last fired. */
-    val metricModeAgeMs:    Long = 0L,
-    /** Milliseconds since [rppgAmplitude]/[rppgBPM] were last computed. */
-    val rppgAgeMs:           Long = 0L
+    val metricModeAgeMs:    Long = 0L
 )
 
 /**

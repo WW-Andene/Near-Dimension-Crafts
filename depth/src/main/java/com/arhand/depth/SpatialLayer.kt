@@ -89,8 +89,6 @@ class SpatialLayer(private val context: Context) {
 
     /** Visual SLAM — accumulates camera pose and per-frame delta each bitmap frame. */
     val slam    = SlamLite()
-    /** Remote photoplethysmography — estimates heart rate from skin-pixel green channel. */
-    val rppg    = rPPGSource()
     /** Surface normals from depth gradients — used for plane fitting and AO. */
     val normals = SurfaceNormals()
     /** Ambient occlusion proxy from neighbour depth comparison. */
@@ -167,8 +165,8 @@ class SpatialLayer(private val context: Context) {
      * Start or stop [FusedDepthSource]'s reconstruction-only sub-sources (photometric
      * stereo, dual-camera stereo, rolling-shutter stereo, phase-shifting profilometry).
      * Call with `true` when a scan starts (posed or freeform) and `false` when it
-     * ends/cancels. ARCore/SfM metric grounding and SLAM/rPPG stay always-on regardless
-     * — only the scan-reconstruction-specific sources are gated.
+     * ends/cancels. ARCore/SfM metric grounding and SLAM stay always-on regardless — only
+     * the scan-reconstruction-specific sources are gated.
      */
     fun setReconstructionActive(active: Boolean) = fusedDepth.setReconstructionActive(active)
 
@@ -216,7 +214,6 @@ class SpatialLayer(private val context: Context) {
      */
     fun processBitmap(bitmap: android.graphics.Bitmap): DepthAnythingSource.FlowSnapshot {
         slam.process(bitmap)
-        rppg.process(bitmap)
         return DepthAnythingSource.FlowSnapshot(slam.meanFlowMag, slam.medianFlowNX, slam.medianFlowNY)
     }
 
@@ -225,7 +222,6 @@ class SpatialLayer(private val context: Context) {
         started = false
         fusedDepth.stop()
         slam.reset()
-        rppg.reset()
         roomMapActive = false
         voxelGrid.reset()
         _state.value = SpatialState()

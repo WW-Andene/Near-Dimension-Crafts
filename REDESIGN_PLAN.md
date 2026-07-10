@@ -437,7 +437,8 @@ an explicit decision (documented in `ENGINE_ARCHITECTURE.md` alongside the fix),
    `snsProxy` through `SpatialFrame.rppgSnsProxy` → `SpatialFrameProducer` → new
    `OscStreamer.sendRppgSns()` → `SpatialFrameRouter`'s existing rPPG warm-up-gated block, on a
    **new** `/rppg/sns` address rather than extending `/rppg`'s argument list, so no existing OSC
-   consumer breaks.
+   consumer breaks. **Later superseded**: the whole rPPG feature was removed on direct request
+   (see Phase 14) — this entry stays as the historical record of what Phase 10 actually did.
 6. **§10.7 (`toggleCloud`/`toggleDepth`/`toggleRoomMap`/`exportRoomMap`/`clearRoomMap`)** —
    decided these belong in the existing Settings screen. Added a "SPATIAL" `SettingsSection` to
    `SettingsScreen` with toggles/buttons for all five, including visible copy for the
@@ -554,13 +555,36 @@ different clock than camera-frame arrival — worth knowing when reading those n
 camera capture rate (e.g. a long low-light exposure) will show as "skip" too, mixed in with actual
 throttling.
 
+## Phase 14 — Remove rPPG entirely, direct user request — DONE
+
+Directly requested ("delete rPPG"), after a preceding question-and-answer pass about what else in
+the app isn't purely depth/detection surfaced it as one candidate. Not a reversal of §10.5's
+earlier "wire it up, don't delete it" correction (that was about whether an *unused* computation
+was safe to prune; this is a separate, later decision to drop the *feature* altogether once it
+had a real consumer). Removed:
+
+- `depth/rPPGSource.kt` (the whole class) and `SpatialLayer.rppg` (field, `.process()`/`.reset()`
+  calls, and the "SLAM/rPPG stay always-on" doc reference, corrected to just SLAM).
+- `SpatialFrame.rppgAmplitude`/`rppgBPM`/`rppgSnsProxy`/`rppgAgeMs` and their class-doc mentions.
+- `SpatialFrameProducer`'s `rppgSrc` local and the four `SpatialFrame(...)` constructor args
+  reading from it.
+- `SpatialFrameRouter`'s `if (frame.rppgBPM > 0) { sendRppg(...); sendRppgSns(...) }` OSC block.
+- `OscStreamer.sendRppg()`/`sendRppgSns()`, plus `buildOscMixed()` — confirmed dead once
+  `sendRppg` (its only caller) was gone, so removed rather than left orphaned.
+- `OscSchemaAddresses.rppgAddr` — already dead before this (declared, never referenced even
+  within its own file).
+
+Verified by repo-wide grep before and after (per §3.2's standing rule) that nothing else
+referenced any of this — a clean removal, no half-connected leftovers, no dead code left behind
+for a future pass to rediscover.
+
 ## Recommended order
 
-Phase 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13. Phases 0-4 are all independent of
-each other technically and could be reordered or parallelized; the sequence above is by impact
-(fix what's visibly broken first), not by dependency. Phases 9 through 13 were all reactive
-(direct user requests) rather than part of the original sequence. Remaining open items: the
-narrow, explicitly-scoped-out non-goals noted inline throughout (§8.2's inherent BVH-format
+Phase 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13 → 14. Phases 0-4 are all
+independent of each other technically and could be reordered or parallelized; the sequence above
+is by impact (fix what's visibly broken first), not by dependency. Phases 9 through 14 were all
+reactive (direct user requests) rather than part of the original sequence. Remaining open items:
+the narrow, explicitly-scoped-out non-goals noted inline throughout (§8.2's inherent BVH-format
 limitation, §9's larger recomposition restructuring, a few named exclusions inside Phase 8, §17.2's
 body motion-prediction gap, §17.3's depth-channel extension and multi-frame stacking) — none of
 them a deferred "big fix" left implicit, all of them a documented line drawn on purpose.

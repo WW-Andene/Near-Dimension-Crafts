@@ -271,13 +271,13 @@ class SpatialFrameProducer(
             slSource.getLastResult()
         } else null
 
-        // v27: SLAM + rPPG, and DA2/DRASL/JBU — Core-layer channels, rate-controlled by
+        // v27: SLAM, and DA2/DRASL/JBU — Core-layer channels, rate-controlled by
         // depthBudget the same way modelBudget already rate-controls MediaPipe tracking
         // below. Previously both ran unconditionally on every camera frame regardless of
         // FrameThrottler's decision — since this whole function runs on one sequential
         // per-frame coroutine (frameJob), an over-budget Core pass delayed every later
         // stage of the same frame, including hand-tracking submission (ENGINE_ARCHITECTURE.md
-        // §3). Each channel keeps its own last-computed output (SlamLite/DA2/rPPG state,
+        // §3). Each channel keeps its own last-computed output (SlamLite/DA2 state,
         // lastFlowSnapshot here) between throttled frames, so skipped frames read as
         // stale-but-recent rather than absent.
         val depthDec = depthBudget.tick(DEPTH_CHANNEL_IDS)
@@ -403,7 +403,6 @@ class SpatialFrameProducer(
         val slamPoseSnap  = slamSrc.pose.takeIf  { slamSrc.featureCount > 0 }
         val slamDeltaSnap = slamSrc.delta.takeIf { slamSrc.featureCount > 0 }
 
-        val rppgSrc   = spatialLayer.rppg
         val pspData   = fused.psp
         val pspSnap   = if (!pspData.isStale) pspData.phaseBlocks else null
         val jbuDepth  = fused.jbuDepthBlocks
@@ -516,9 +515,6 @@ class SpatialFrameProducer(
             planes               = detectedPlanes,
             slamPose             = slamPoseSnap,
             slamDelta            = slamDeltaSnap,
-            rppgAmplitude        = rppgSrc.amplitude,
-            rppgBPM              = rppgSrc.bpm,
-            rppgSnsProxy         = rppgSrc.snsProxy,
             jbuDepth             = jbuDepth,
             fusionWeights        = fusWeights,
             metricSource         = metricSrc,
@@ -527,8 +523,7 @@ class SpatialFrameProducer(
             // 0L means "never computed yet" (e.g. before the first frame) rather than a real
             // age — reported as 0 rather than a bogus multi-decade age from an epoch timestamp.
             fusionWeightsAgeMs   = fused.arbiterWeightsTimestampMs.takeIf { it > 0L }?.let { assembleTimeMs - it } ?: 0L,
-            metricModeAgeMs      = fused.lastArcoreCallbackMs.takeIf { it > 0L }?.let { assembleTimeMs - it } ?: 0L,
-            rppgAgeMs            = rppgSrc.lastFrameMs.takeIf { it > 0L }?.let { assembleTimeMs - it } ?: 0L
+            metricModeAgeMs      = fused.lastArcoreCallbackMs.takeIf { it > 0L }?.let { assembleTimeMs - it } ?: 0L
         )
 
         _frames.tryEmit(frame)

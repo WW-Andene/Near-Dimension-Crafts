@@ -168,7 +168,7 @@ consolidation (§10.3) makes it natural.
 ### 4.7 Core-layer depth channels (SLAM, DA2) run unthrottled at full camera rate — DONE
 
 `SpatialFrameProducer.processBitmap` calls `spatialLayer.processBitmap(bitmap)` (SlamLite
-Harris-corner detection + pyramidal optical flow, plus rPPG) and
+Harris-corner detection + pyramidal optical flow) and
 `spatialLayer.fusedDepth.processAuxSources(...)` (DA2 CNN dispatch, plus DRASL/JBU, plus
 RS-stereo/PSP/stereo/FLARE/MOIRE when `reconstructionActive`) unconditionally, several lines
 *before* `frameThrottler.shouldInfer()`'s gate. MediaPipe tracking (hand/body/face, a few lines
@@ -392,8 +392,8 @@ grounding-continuity improvement; CI verifies compilation only.
 ### 5.1 Cross-cadence staleness: Core writes some fields at raw-frame rate, Translation reads them at hand-inference rate — DONE (Phase 8 item 1)
 
 `SpatialFrameProducer.assembleFrame()` runs once per throttled `handPipeline.processed`
-emission, but reads `getMeanArbiterWeights()`, `metricMode`, `rppg.bpm`/`amplitude` — all written
-by Core-layer code at raw camera-frame rate or ARCore's own callback thread. Values embedded in
+emission, but reads `getMeanArbiterWeights()`, `metricMode` — both written by Core-layer code
+at raw camera-frame rate or ARCore's own callback thread. Values embedded in
 a given `SpatialFrame` are "whatever Core last computed," not necessarily aligned to the exact
 camera frame the bundled hand landmarks came from.
 
@@ -709,7 +709,7 @@ deleted `FreeformPanel` and its section header comment entirely (one of the two 
 outcomes this document's own §3.2 rule allows for, reached only after confirming zero call sites
 and a working replacement, not a unilateral guess).
 
-### 10.5 `rPPGSource.snsProxy` — a deliberately designed metric with no consumer, corrected from an earlier "safe to delete" misclassification — DONE
+### 10.5 `rPPGSource.snsProxy` — a deliberately designed metric with no consumer, corrected from an earlier "safe to delete" misclassification — DONE, then REMOVED
 
 **This document previously (in this same research pass) recommended deleting this as wasted
 computation. That was wrong, caught on review before anything was acted on** — exactly the
@@ -730,6 +730,14 @@ presumably meant for a biometric or wellness-adjacent UI/OSC output) missing its
 **separate new OSC address** (`/rppg/sns`) rather than extending `/rppg`'s existing argument
 list, specifically so no existing OSC consumer expecting exactly `(amplitude, bpm)` on `/rppg`
 breaks.
+
+**Later REMOVED entirely, direct user request** ("delete rPPG") — not a reversal of the
+misclassification-correction above, a separate later decision to drop the feature altogether.
+Deleted `depth/rPPGSource.kt`, `SpatialLayer.rppg`, all `rppgAmplitude`/`rppgBPM`/`rppgSnsProxy`/
+`rppgAgeMs` fields from `SpatialFrame`, the `/rppg` and `/rppg/sns` OSC send calls and their
+`OscStreamer` methods, and the now-dead `OscStreamer.buildOscMixed` helper that only `sendRppg`
+called. Nothing else in the codebase referenced any of this (verified by repo-wide grep before
+deleting, per §3.2), so removal was clean — no half-connected leftovers.
 
 **Why this is flagged so explicitly**: it's evidence the mistake §3.2 was written to prevent
 recurred even after the rule existed and even within a pass that was specifically re-reviewing

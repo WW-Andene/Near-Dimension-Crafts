@@ -118,7 +118,7 @@ private val Context.oefDataStore: DataStore<Preferences>
 /**
  * Application-level coordinator — owns the sensing pipeline, scan lifecycle, and UI state.
  *
- * Constructs and wires together [spatialLayer] (Core: ARCore/SfM/Photometric/SLAM/rPPG/DA2),
+ * Constructs and wires together [spatialLayer] (Core: ARCore/SfM/Photometric/SLAM/DA2),
  * `producer` ([com.arhand.feature.spatial.SpatialFrameProducer], the camera loop and MediaPipe
  * tracking pipelines), `router` ([com.arhand.feature.spatial.SpatialFrameRouter], which
  * distributes assembled frames to the renderer/OSC/BVH/scanner), `scanCoordinator`

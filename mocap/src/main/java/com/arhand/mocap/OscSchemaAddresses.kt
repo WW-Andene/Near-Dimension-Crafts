@@ -143,9 +143,6 @@ internal object SchemaAddresses {
     /** `/camera/pose_delta` — 3 floats: tx, ty, rz (per-frame camera motion delta). */
     val cameraPoseDeltaAddr: ByteArray = oscString("/camera/pose_delta")
 
-    /** `/rppg` — 2 args: float amplitude, int bpm. */
-    val rppgAddr:            ByteArray = oscString("/rppg")
-
     /** `/depth/metric` — 48 floats (8×6 absolute metric depth in metres). */
     val depthMetricAddr:     ByteArray = oscString("/depth/metric")
 

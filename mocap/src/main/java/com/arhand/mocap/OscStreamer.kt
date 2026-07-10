@@ -502,28 +502,6 @@ class OscStreamer {
     }
 
     /**
-     * Emit `/rppg` — float amplitude, int bpm.
-     */
-    fun sendRppg(amplitude: Float, bpm: Int) {
-        if (!isStreaming) return
-        val skt = socket ?: return; val addr = resolvedAddress ?: return
-        val msg = buildOscMixed("/rppg", floatArgs = floatArrayOf(amplitude), intArgs = intArrayOf(bpm))
-        runCatching { skt.send(DatagramPacket(msg, msg.size, addr, port)) }
-    }
-
-    /**
-     * Emit `/rppg/sns` — float SNS (sympathetic nervous system) arousal proxy.
-     * ENGINE_ARCHITECTURE.md §10.5 — a separate message rather than a third `/rppg` argument,
-     * so existing `/rppg` consumers expecting exactly (amplitude, bpm) are unaffected.
-     */
-    fun sendRppgSns(snsProxy: Float) {
-        if (!isStreaming) return
-        val skt = socket ?: return; val addr = resolvedAddress ?: return
-        val msg = buildOscFloatArray("/rppg/sns", floatArrayOf(snsProxy))
-        runCatching { skt.send(DatagramPacket(msg, msg.size, addr, port)) }
-    }
-
-    /**
      * Emit `/depth/metric` — 48 floats (8×6 absolute metric depth in metres).
      */
     fun sendDepthMetric(depthBlocks: FloatArray) {
@@ -555,18 +533,6 @@ class OscStreamer {
             val msg = buildOscFloatStringMessage("/plane/$i", coeffs, label)
             runCatching { skt.send(DatagramPacket(msg, msg.size, addr, port)) }
         }
-    }
-
-    /** Build an OSC message with mixed float + int args: ,f…i… */
-    private fun buildOscMixed(address: String, floatArgs: FloatArray, intArgs: IntArray): ByteArray {
-        val addrPad = padOsc(address.toByteArray(Charsets.US_ASCII) + 0)
-        val typeStr = "," + "f".repeat(floatArgs.size) + "i".repeat(intArgs.size)
-        val typePad = padOsc(typeStr.toByteArray() + 0)
-        val argBytes = ByteArray((floatArgs.size + intArgs.size) * 4)
-        val buf = java.nio.ByteBuffer.wrap(argBytes).order(java.nio.ByteOrder.BIG_ENDIAN)
-        for (v in floatArgs) buf.putFloat(v)
-        for (v in intArgs)  buf.putInt(v)
-        return addrPad + typePad + argBytes
     }
 
     /** Build an OSC message with float array args followed by one string arg: ,f…s */

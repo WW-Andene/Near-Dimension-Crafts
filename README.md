@@ -38,7 +38,7 @@ library modules via `project(':x')` for everything else.
                         ▼
                   ┌───────────┐
                   │   depth    │  12-channel depth fusion (ARCore, structured
-                  │            │  light, photometric, SfM, DA2 neural, rPPG…),
+                  │            │  light, photometric, SfM, DA2 neural…),
                   │            │  marching cubes, TSDF, mesh smoothing/remeshing
                   └─────┬──────┘
                         ▼
@@ -86,7 +86,7 @@ util, tracking, depth, scanner, mocap, render, export, camera ← app
 | `util`     | Shared math (lerp, quaternions), One Euro filter (3D), adaptive frame throttler, per-model inference budget manager, ring-buffer point cloud store, perf monitor state. |
 | `camera`   | CameraX capture pipeline, YUV→Bitmap conversion, torch control. |
 | `tracking` | MediaPipe Tasks wrappers for hand/face/body landmarks, One Euro smoothing, occlusion inference, temporal depth fusion, gesture vocabulary classification. |
-| `depth`    | The core "software LiDAR": per-source depth estimators (ARCore, structured light, photometric stereo, SfM, Depth Anything v2, rolling-shutter stereo, rPPG), the 12-channel `CrossChannelArbiter` fusion, `SpatialLayer` orchestration, marching cubes meshing, TSDF volume, mesh smoothing/remeshing. |
+| `depth`    | The core "software LiDAR": per-source depth estimators (ARCore, structured light, photometric stereo, SfM, Depth Anything v2, rolling-shutter stereo), the 12-channel `CrossChannelArbiter` fusion, `SpatialLayer` orchestration, marching cubes meshing, TSDF volume, mesh smoothing/remeshing. |
 | `scanner`  | Guided 8-pose scan workflow (`Scanner`, `ScanPoses`), freeform continuous scanning, CLAHE image enhancement, quality gating, hand biometrics, joint range-of-motion accumulation, personal model persistence. |
 | `mocap`    | Converts live tracking landmarks into joint rotations (bone/body retargeting), biomechanical constraint filtering, quaternion EMA smoothing, OSC send/receive networking, motion recording, VRM blend shape parsing, bundled asset generation/loading. |
 | `render`   | OpenGL ES 3.0 renderers for camera passthrough, hand/body/face skeletons, live-deforming mesh, point cloud, skinned GLB meshes, and the standalone model viewer. |
