@@ -156,6 +156,14 @@ class SpatialLayer(private val context: Context) {
     fun setReconstructionActive(active: Boolean) = fusedDepth.setReconstructionActive(active)
 
     /**
+     * Release ARCore's hold on the rear camera before [com.arhand.camera.CameraController]
+     * switches onto it, and reacquire once it switches away again — call around
+     * [com.arhand.camera.CameraController.switchCamera] (ENGINE_ARCHITECTURE.md §4.9).
+     */
+    fun pauseArcoreCameraHold()  = fusedDepth.pauseArcoreCameraHold()
+    fun resumeArcoreCameraHold() = fusedDepth.resumeArcoreCameraHold()
+
+    /**
      * Process [bitmap] through the always-on v27 sensing pipeline.
      * Call once per camera frame from [SpatialFrameProducer.processBitmap].
      *

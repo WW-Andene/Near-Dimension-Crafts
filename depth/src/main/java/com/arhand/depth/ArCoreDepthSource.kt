@@ -71,6 +71,25 @@ class ArCoreDepthSource(private val context: Context) : DepthSource {
         session?.close(); session = null
     }
 
+    /**
+     * Release ARCore's hold on the physical (rear) camera without touching [started] or
+     * [callback] bookkeeping, so [resumeCameraHold] can cleanly pick back up — unlike
+     * [stop], which is a full lifecycle stop. This Session always targets the rear-facing
+     * camera via its own independent Camera2 handle (no ARCore Shared-Camera integration
+     * here), so it cannot be open at the same time [com.arhand.camera.CameraController]
+     * also holds the rear camera — call this before that happens (ENGINE_ARCHITECTURE.md
+     * §4.9), then [resumeCameraHold] once the rear camera is free again.
+     */
+    fun pauseCameraHold() {
+        try { session?.pause() } catch (_: Throwable) {}
+    }
+
+    /** Reacquire the camera released by [pauseCameraHold]. No-op if never [start]ed. */
+    fun resumeCameraHold() {
+        if (!started) return
+        try { session?.resume() } catch (_: Throwable) {}
+    }
+
     // ─── GL thread hooks — call from your GLSurfaceView.Renderer ─────────
 
     fun setCameraTextureName(texId: Int) {

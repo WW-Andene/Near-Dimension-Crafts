@@ -191,6 +191,55 @@ through), so skipped frames read as stale-but-recent rather than absent. Unit-te
 isolation (`util/src/test/.../DepthChannelBudgetTest.kt`) — no device available in this
 environment to confirm the on-device lag actually improves; CI verifies compilation only.
 
+### 4.8 Camera stream itself capped at 30fps regardless of Core/Translation throttling — DONE
+
+Separately from §4.7's per-frame processing cost, `CameraController.bindCamera()`
+(`camera/.../CameraController.kt`) built its `ImageAnalysis` with no capture-request tuning at
+all, so the actual camera hardware stream rate was whatever CameraX/the camera HAL's AE routine
+defaults to for the chosen resolution — 30fps on most devices/cameras, even when the camera
+supports a wider AE target FPS range. §4.7 fixes how much work runs per delivered frame; this is
+the separate question of how many frames the hardware delivers per second in the first place —
+both needed for "not a perfect 1:1 60fps" to actually mean 60fps end-to-end.
+
+**Fix**: added `CameraController.applyHighestFpsRange()`, called from `bindCamera()` for both
+the initial `start()` and every `switchCamera()` rebind. Queries the currently-selected
+camera's own `CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES` via
+`Camera2Interop.Extender` and requests the widest range the camera itself advertises — never a
+hardcoded guess like `(60, 60)`, which would be silently ignored or rejected outright on a
+camera that doesn't support it. Wrapped in try/catch with a silent fallback to CameraX's default
+behaviour on any failure, matching the existing device-variance-guard convention already used
+by `ArCoreDepthSource`/`GrayscaleCamera`'s own Camera2 calls. No device available in this
+environment to confirm actual achieved frame rate or rule out device-specific AE-range quirks;
+CI verifies compilation only.
+
+### 4.9 Switching to the rear camera froze the screen — ARCore and CameraX both held the same physical camera
+
+`ArCoreDepthSource` creates its own ARCore `Session` (`ArCoreDepthSource.kt:181`) with no
+camera-facing configuration and no ARCore Shared-Camera integration, so it opens its own
+independent Camera2 handle to the device's rear-facing camera as soon as `SpatialLayer.start()`
+resumes it — always-on, per §2's "metric grounding is always-on from camera start" design.
+Separately, `CameraController` (CameraX/`ProcessCameraProvider`) defaults to the *front* camera
+at startup (`CameraController.kt:40`), so the two never contended for hardware — until
+`AppViewModel.switchCamera()` called `cameraController.switchCamera()` to bind CameraX onto the
+*rear* camera too. At that point both clients wanted exclusive access to the same physical
+camera device; CameraX's `bindToLifecycle()` had to wait for a device ARCore's `Session` was
+still holding open, which is what surfaced as the screen freezing and never completing the
+switch. This had no prior symptom simply because nothing had exercised switching to the rear
+camera before.
+
+**Fix**: added `ArCoreDepthSource.pauseCameraHold()`/`resumeCameraHold()` (a lighter-weight
+pair than the existing `start()`/`stop()`, which also touch `started`/`callback` bookkeeping),
+threaded through `FusedDepthSource`/`SpatialLayer` as `pauseArcoreCameraHold()`/
+`resumeArcoreCameraHold()`. `AppViewModel.switchCamera()` now releases ARCore's camera hold
+*before* calling `cameraController.switchCamera()`, and reacquires it only once CameraX has
+switched back to front (freeing the rear camera again) — while CameraX itself is on rear,
+ARCore genuinely cannot also hold it, so depth/world-tracking degrades to unavailable during
+that window, same as the already-documented front-camera degradation path (§4's comment this
+replaces). A full fix — ARCore's Shared-Camera API, letting both clients use the same physical
+camera concurrently — is a substantially larger, device-camera-HAL-sensitive integration not
+attempted here; this is the minimal change that resolves the freeze. No device available in
+this environment to confirm on-device; CI verifies compilation only.
+
 ## 5. Timing & correlation gaps (values from different cadences combined as if simultaneous)
 
 ### 5.1 Cross-cadence staleness: Core writes some fields at raw-frame rate, Translation reads them at hand-inference rate

@@ -742,8 +742,20 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         // SL calibration is camera-specific — reset on switch
         producer.resetSLCalibration()
+
+        // ARCore's Session always holds the rear camera via its own independent Camera2
+        // handle (there's no ARCore Shared-Camera integration here) — it must release that
+        // handle before CameraController can bind to the same physical camera, or the bind
+        // hangs waiting for a device ARCore is still holding open. This is why switching TO
+        // the rear camera previously froze the screen: CameraX's bindToLifecycle() was
+        // contending with ARCore's own open session for the same hardware camera
+        // (ENGINE_ARCHITECTURE.md §4.9).
+        spatialLayer.pauseArcoreCameraHold()
         cameraController.switchCamera()
         val nowFront = cameraController.isFrontFacing()
+        // Only reacquire once CameraX has moved off the rear camera again — while
+        // CameraX itself is on rear, ARCore can't share that same physical device.
+        if (nowFront) spatialLayer.resumeArcoreCameraHold()
         producer.isFrontCamera = nowFront
         router.isFrontCamera   = nowFront
         // Front camera has no torch — turn it off physically and sync UI state.

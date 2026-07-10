@@ -419,6 +419,14 @@ class FusedDepthSource(
         }
     }
 
+    /**
+     * Release ARCore's hold on the rear camera before [com.arhand.camera.CameraController]
+     * switches onto it, and reacquire once it switches away — see
+     * [ArCoreDepthSource.pauseCameraHold] / ENGINE_ARCHITECTURE.md §4.9.
+     */
+    fun pauseArcoreCameraHold()  = arcore.pauseCameraHold()
+    fun resumeArcoreCameraHold() = arcore.resumeCameraHold()
+
     override fun stop() {
         alsListener?.let { sensorManager?.unregisterListener(it) }
         alsListener = null
