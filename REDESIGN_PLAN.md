@@ -187,33 +187,10 @@ public methods (`push`/`snapshot`/`clear`) are already `@Synchronized`, which se
 caller regardless of which thread it runs on — this already covers the real (wider) contract
 correctly. No second finding; the gap was the comment, not the synchronization.
 
-## Blocked — need your decision before these enter any phase
+## Blocked — resolved in Phase 10 below
 
-These four are real, working-or-nearly-working features, not bugs, so there's no "correct"
-technical fix without knowing what's actually wanted:
-
-- **§10.1 `ensureFullBodyCollector`** — full-body-context gesture classification. Wire it up
-  (redirecting to `SpatialFrameProducer`'s own body-retarget output, not a fresh `.retarget()`
-  call) or retire it deliberately?
-- **§10.2 `renderer.scanCloudPoints`** — live point-cloud preview toggle. Feed it from
-  `store.snapshot()` or retire the toggle?
-- **§10.4 `FreeformPanel`** — references a `WorkflowMode` value that no longer exists. Rebuild
-  under the current mode design, or retire along with its stale doc comment?
-- **§10.5 `rPPGSource.snsProxy`** — a designed SNS/stress-arousal metric with no consumer. Wire
-  it into OSC/HUD output somewhere, or retire it and the doc section describing it?
-- **§10.7 Five working `AppViewModel` methods have no UI trigger** (`toggleCloud`, `toggleDepth`,
-  `toggleLiveMesh`, and — after this pass — `toggleRoomMap`/`clearRoomMap`/`exportRoomMap`;
-  `switchCamera`/`toggleTorch` are gesture-reachable but have no visible button either). Add UI
-  entry points (settings row, debug menu, more gestures), or are some of these intentionally
-  code/gesture-only? Not a bug — the backend logic all works — but picking where they surface
-  is a design decision, not something to guess at blind.
-
-Also effectively blocked, lower priority, deferred rather than urgent:
-- §8.1 (BVH occlusion hard-snap → hold-at-last-known instead), §8.3 (OSC quaternion
-  normalization), §9 (Compose recomposition memoization) — real, but lower severity than
-  everything above; worth doing, not worth blocking the higher-impact phases on.
-- §6.2 (`WhiteScreenOverlay`) — same shape as the blocked items above (needs a "was a one-shot
-  flash actually wanted" answer), just lower stakes.
+All items formerly listed here (§10.1, §10.2, §10.4, §10.5, §10.7, plus the deferred §6.2/§8.1/
+§8.3/§9 group) were decided and fixed in Phase 10 — see below for what was chosen and why.
 
 **Correction**: this list previously also included §5.1/§5.4/§5.5 as "deferred, speculative
 without on-device data." That was superseded by Phase 8 item 1 below, which re-read each
@@ -431,11 +408,59 @@ Triggered by direct user reports after Phase 8 shipped, not by a pre-existing
     viewer-scoped recomposition) is a bigger restructuring not attempted — too much regression
     risk with no way to visually verify the result from this environment.
 
+## Phase 10 — Cleared the blocked list: §6.x/§10.x decisions made and fixed, then §4.11 revisited — DONE
+
+Directly requested: "fix the §6.x and §10.x findings then §4.11." Each formerly-blocked item got
+an explicit decision (documented in `ENGINE_ARCHITECTURE.md` alongside the fix), not a guess:
+
+1. **§6.2 `WhiteScreenOverlay`** — decided a one-shot flash cue was worth having (photo-capture
+   feedback for a completed scan pose). Rewrote it to a `trigger: Int` token driving
+   `Animatable`+`LaunchedEffect`, replacing the old `visible: Boolean`/`RepeatMode.Restart`
+   version that would have flashed forever had anything ever called it. Wired to
+   `Scanner.poseCaptureDone` via a new unconditional collector in `ScanCoordinator.start()` and a
+   new `AppUiState.captureFlashToken` counter; `MainActivity` renders
+   `WhiteScreenOverlay(trigger = uiState.captureFlashToken)`.
+2. **§10.1 `ensureFullBodyCollector`** — decided full-body gesture classification stays deferred
+   (no product signal it's wanted yet), but the duplicate-retarget bug underneath it was real and
+   fixed regardless: exposed `SpatialFrameProducer.latestBodyResult`/`latestBodyLandmarks` as
+   public `StateFlow`s, rewrote the collector to read them instead of calling
+   `bodyRetargeter.retarget()` a second time, and started it from `initCamera()`. Fixes the HUD's
+   body-confidence indicator having silently read `0f` forever (zero writers before this).
+3. **§10.2 `renderer.scanCloudPoints`** — decided the live preview was worth completing. The
+   per-hand-frame collector in `AppViewModel` now samples
+   `spatialLayer.fusedDepth.store.snapshot()` into it whenever `showCloud` is on.
+4. **§10.4 `FreeformPanel`** — decided this is genuinely superseded, not one wire away: confirmed
+   `WorkflowMode.FREEFORM` doesn't exist, confirmed zero call sites, confirmed the freeform-scan
+   UX is already fully served by `vm.startFreeformScan()` + `FreeformScanOverlay`. Deleted the
+   composable and its stale doc comment together.
+5. **§10.5 `rPPGSource.snsProxy`** — decided to wire it into OSC output. Threaded
+   `snsProxy` through `SpatialFrame.rppgSnsProxy` → `SpatialFrameProducer` → new
+   `OscStreamer.sendRppgSns()` → `SpatialFrameRouter`'s existing rPPG warm-up-gated block, on a
+   **new** `/rppg/sns` address rather than extending `/rppg`'s argument list, so no existing OSC
+   consumer breaks.
+6. **§10.7 (`toggleCloud`/`toggleDepth`/`toggleRoomMap`/`exportRoomMap`/`clearRoomMap`)** —
+   decided these belong in the existing Settings screen. Added a "SPATIAL" `SettingsSection` to
+   `SettingsScreen` with toggles/buttons for all five, including visible copy for the
+   front-camera constraint `toggleDepth()` already silently enforced. Decided `toggleLiveMesh()`
+   stays unwired here — it needs a loaded scan asset and belongs contextually to a model-viewing
+   screen, not general settings. `switchCamera`/`toggleTorch` stay gesture-only, matching their
+   existing deliberate UX.
+7. **§4.11 revisited** — re-confirmed rather than re-litigated: the root cause (MediaPipe world
+   landmarks discard camera/room position by design — origin re-centered to the hand's own
+   geometric center every frame) and the conclusion that a pose-composition fix cannot work (no
+   translation information survives in hand-centred landmarks to compose a room position from)
+   both still hold on review. The correct fix — real per-landmark camera-space depth (SL/DA2)
+   unprojected via camera intrinsics before composing with ARCore's pose — remains scoped as its
+   own follow-up, not attempted here: it's a materially larger change with conditional
+   dependencies (SL calibration, DA2 XR warm-up) and no way to verify a regression from this
+   environment without a device. Not reattempting a large, unverifiable change blind is the same
+   judgment call this document made the first time, not new caution invented for this pass.
+
 ## Recommended order
 
-Phase 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8, then the blocked items once you've answered the four
-(now five, with §10.7) product questions, then the deferred/lower-priority list opportunistically.
-Phases 0-4 are all independent of each other technically and could be reordered or parallelized;
-the sequence above is by impact (fix what's visibly broken first), not by dependency. Phase 9 was
-reactive (direct user reports plus a requested cleanup pass) rather than part of the original
-sequence, and is now also done.
+Phase 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10. Phases 0-4 are all independent of each other
+technically and could be reordered or parallelized; the sequence above is by impact (fix what's
+visibly broken first), not by dependency. Phases 9 and 10 were both reactive (direct user
+requests) rather than part of the original sequence. All phases are now done; the one remaining
+open item in the whole document is §4.11's larger follow-up (per-landmark depth unprojection),
+deliberately scoped out as noted above.

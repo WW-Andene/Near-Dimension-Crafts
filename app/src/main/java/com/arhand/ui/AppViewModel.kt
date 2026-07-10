@@ -97,7 +97,14 @@ data class AppUiState(
     val liveMeshActive: Boolean      = false,
     val workflowMode:  WorkflowMode  = WorkflowMode.IDLE,
     /** True once the user has denied the CAMERA permission request. */
-    val cameraPermissionDenied: Boolean = false
+    val cameraPermissionDenied: Boolean = false,
+    /**
+     * Monotonically-incrementing token bumped once per accepted pose capture — see
+     * [com.arhand.ui.WhiteScreenOverlay] (ENGINE_ARCHITECTURE.md §6.2). A plain Boolean
+     * can't signal "fire again" for two captures in a row; each new value fires exactly
+     * one flash regardless of whether the previous one finished animating.
+     */
+    val captureFlashToken: Int = 0
 )
 
 // DataStore delegates — must be top-level per Kotlin DataStore contract.
@@ -546,6 +553,20 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                             }
                         }
                     }
+
+                    // ENGINE_ARCHITECTURE.md §10.2 — renderer.showCloud was a fully working
+                    // toggle/render path with nothing feeding renderer.scanCloudPoints. Sample
+                    // the same live point-cloud store scan-capture already reads, independent
+                    // of scan state — this is a live preview, not scan-scoped.
+                    if (uiState.value.showCloud) {
+                        val store = spatialLayer.fusedDepth.store
+                        val needed = store.snapshot()
+                        if (needed >= 4) {
+                            val buf = FloatArray(needed)
+                            store.snapshot(buf)
+                            renderer.scanCloudPoints = buf
+                        }
+                    }
                 }
             }
         }
@@ -610,6 +631,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         cc.start(owner, facing)
         cc.setTorch(uiState.value.torchOn)
         uiState.value = uiState.value.copy(showSplash = false)
+
+        // ENGINE_ARCHITECTURE.md §10.1 — starts the FullBodyFrame merge collector, which
+        // also fixes latestBodyRetargetResult having no writer at all (see that method's doc).
+        ensureFullBodyCollector()
     }
 
     fun toggleRenderMode() {
@@ -1026,12 +1051,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Guards against launching the FullBodyFrame merge collector more than once. */
     private var fullBodyCollectorStarted = false
 
-    // This collector's own grace-period/EMA state for BodyRetargeter.retarget() — kept
-    // separate from SpatialFrameProducer's own state (see BodyRetargeter's class doc);
-    // both currently retarget the same bodyPipeline output, so sharing one state would
-    // corrupt it the moment this dormant collector is ever activated.
-    private var ensureFullBodyCollectorState = com.arhand.mocap.BodyRetargeterState.INITIAL
-
+    /**
+     * ENGINE_ARCHITECTURE.md §10.1 — was built but never started, and (before this fix)
+     * duplicated `SpatialFrameProducer`'s own body retargeting via a second
+     * `bodyRetargeter.retarget()` call with independent state. Now reads
+     * `producer.latestBodyResult`/`producer.latestBodyLandmarks` — the producer's own
+     * already-computed output — instead of recomputing, so there's exactly one retargeting
+     * pass regardless of how many collectors want the result. Started from [initCamera] below.
+     * `latestFullBodyFrame` still has no consumer of its own (`CompositeGestureClassifier`'s
+     * `classify(FullBodyFrame, slot)` overload is never called from the gesture dispatcher,
+     * which only uses the simpler `classify(gesture, fe)`); wiring gesture dispatch to use
+     * full-body context is a product decision on what that should actually change about
+     * gesture behavior, not a technical fix — left for a deliberate follow-up. This collector
+     * does, however, fix a real currently-broken side effect: `latestBodyRetargetResult` had
+     * no writer at all while this collector was dormant, so `perfMonitor.updateQuality`'s body
+     * confidence (read from it) was always 0 regardless of actual tracking quality.
+     */
     private fun ensureFullBodyCollector() {
         if (fullBodyCollectorStarted) return
         fullBodyCollectorStarted = true
@@ -1041,7 +1076,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     val leftSlot  = hands.firstOrNull { it.slotIndex == 0 }?.landmarks
                     val rightSlot = hands.firstOrNull { it.slotIndex == 1 }?.landmarks
                     latestFullBodyFrame.value = FullBodyFrame(
-                        pose        = if (trackingManager.state.value.bodyEnabled) bodyPipeline.processed.value else null,
+                        pose        = if (trackingManager.state.value.bodyEnabled) producer.latestBodyLandmarks.value else null,
                         face        = if (trackingManager.state.value.faceEnabled) facePipeline.processed.value else null,
                         leftHand    = leftSlot,
                         rightHand   = rightSlot,
@@ -1051,15 +1086,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                             .takeIf { trackingManager.state.value.faceEnabled }
                     )
 
-                    // BODY-1 — Retarget body landmarks to joint rotations each frame.
-                    // Only runs when body tracking is enabled and landmarks are available.
                     if (trackingManager.state.value.bodyEnabled) {
-                        val poseLms = bodyPipeline.processed.value
-                        if (poseLms != null) {
-                            val (newState, bodyResult) = bodyRetargeter.retarget(poseLms, ensureFullBodyCollectorState)
-                            ensureFullBodyCollectorState = newState
-                            latestBodyRetargetResult.value = bodyResult
-                        }
+                        latestBodyRetargetResult.value = producer.latestBodyResult.value
                     }
                 }
             }

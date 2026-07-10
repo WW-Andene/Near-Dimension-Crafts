@@ -235,6 +235,9 @@ fun HandyApp(
             OnboardingScreen(onDismiss = { vm.dismissOnboarding() })
         }
 
+        // ENGINE_ARCHITECTURE.md §6.2 — capture flash, fires once per accepted pose.
+        WhiteScreenOverlay(trigger = uiState.captureFlashToken)
+
         if (!uiState.showSplash && !uiState.showOnboarding) {
             HudOverlay(
                 perf             = perfState,
@@ -354,6 +357,11 @@ fun HandyApp(
                 isStreaming       = streamState.isStreaming,
                 currentTakeLabel  = recordingState.currentLabel,
                 takes             = recordingState.takes,
+                showCloud         = uiState.showCloud,
+                depthMode         = scanDomainState.depthMode,
+                isFrontCamera     = uiState.isFrontCamera,
+                roomMapActive     = uiState.roomMapActive,
+                roomMapExportPath = uiState.roomMapExportPath,
                 onOscHostChange   = { host ->
                     vm.oscManager.setHost(host)
                     if (streamState.isStreaming) vm.startOscStreaming(host, streamState.port, streamState.schema)
@@ -368,6 +376,11 @@ fun HandyApp(
                 onConstraintToggle = vm::toggleConstraint,
                 onRecalibrateOef  = { vm.recalibrateOef() },
                 onTakeLabelChange = vm::setTakeLabel,
+                onCloudToggle     = vm::toggleCloud,
+                onDepthToggle     = vm::toggleDepth,
+                onRoomMapToggle   = vm::toggleRoomMap,
+                onExportRoomMap   = vm::exportRoomMap,
+                onClearRoomMap    = vm::clearRoomMap,
                 onDismiss         = { vm.setWorkflowMode(WorkflowMode.IDLE) }
             )
         }
@@ -947,135 +960,6 @@ private fun TakeRow(
                 .padding(horizontal = 10.dp, vertical = 6.dp)
         ) {
             Text("✕", fontSize = 11.sp, color = Warn, fontFamily = FontFamily.Monospace)
-        }
-    }
-}
-
-// ── LIMIT-2: Freeform scan panel ──────────────────────────────────────────────
-
-/**
- * Bottom bar panel for the FREEFORM workflow mode.
- *
- * Shown when [WorkflowMode.FREEFORM] is selected. Displays start/finish/cancel
- * controls and key status (coverage, frame count, depth mode toggle) without
- * duplicating the full [FreeformScanOverlay] — the overlay is shown on top of the
- * AR view when a scan is in progress; this panel is the idle launcher.
- */
-@Composable
-private fun FreeformPanel(
-    isActive:      Boolean,
-    status:        com.arhand.scanner.FreeformScanner.FreeformStatus,
-    torchOn:       Boolean,
-    depthMode:     Boolean,
-    onStart:       () -> Unit,
-    onFinish:      () -> Unit,
-    onCancel:      () -> Unit,
-    onTorch:       () -> Unit,
-    onToggleDepth: () -> Unit
-) {
-    val accentCol   = if (isActive) Plasma else Color.White.copy(0.3f)
-    val coveragePct = (status.coveragePercent * 100).toInt()
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(Color(0xFF0A0C12))
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            // Primary action button
-            if (!isActive) {
-                Box(
-                    modifier = Modifier
-                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
-                        .background(Plasma.copy(0.12f))
-                        .border(1.dp, Plasma, androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
-                        .clickable(onClick = onStart)
-                        .padding(horizontal = 18.dp, vertical = 10.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("▶  FREE SCAN", fontSize = 10.sp, color = Plasma,
-                        fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
-                }
-            } else {
-                // Active: show Finish + Cancel
-                Box(
-                    modifier = Modifier
-                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
-                        .background(Plasma.copy(0.12f))
-                        .border(1.dp, Plasma, androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
-                        .clickable(enabled = status.frameCount >= com.arhand.scanner.FreeformScanner.MIN_FRAMES_FOR_MESH,
-                            onClick = onFinish)
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("✓ FINISH", fontSize = 10.sp, color = Plasma,
-                        fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
-                }
-                Box(
-                    modifier = Modifier
-                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
-                        .background(Warn.copy(0.08f))
-                        .border(1.dp, Warn, androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
-                        .clickable(onClick = onCancel)
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("✕ CANCEL", fontSize = 10.sp, color = Warn,
-                        fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
-                }
-            }
-
-            // Status info column
-            Column {
-                if (isActive) {
-                    Text("$coveragePct% coverage  •  ${status.frameCount} frames",
-                        fontSize = 9.sp, color = Plasma.copy(0.8f),
-                        fontFamily = FontFamily.Monospace)
-                    Text("${status.elapsedSec.toInt()}s / ${com.arhand.scanner.FreeformScanner.MAX_DURATION_SEC.toInt()}s  •  rotate your hand freely",
-                        fontSize = 8.sp, color = Color.White.copy(0.4f),
-                        fontFamily = FontFamily.Monospace)
-                } else {
-                    Text("Continuous free-rotation scan", fontSize = 9.sp,
-                        color = Color.White.copy(0.5f), fontFamily = FontFamily.Monospace)
-                    Text("No pose holding required", fontSize = 8.sp,
-                        color = Color.White.copy(0.3f), fontFamily = FontFamily.Monospace)
-                }
-            }
-        }
-
-        // Depth + Torch toggles
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            val depthCol = if (depthMode) Plasma else Color.White.copy(0.2f)
-            Box(
-                modifier = Modifier
-                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
-                    .border(1.dp, depthCol, androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
-                    .background(depthCol.copy(0.08f))
-                    .clickable(onClick = onToggleDepth)
-                    .padding(horizontal = 10.dp, vertical = 6.dp)
-            ) {
-                Text("DEPTH ${if (depthMode) "ON" else "OFF"}", fontSize = 8.sp,
-                    color = depthCol, fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold)
-            }
-            val torchCol = if (torchOn) Plasma else Color.White.copy(0.2f)
-            Box(
-                modifier = Modifier
-                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
-                    .border(1.dp, torchCol, androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
-                    .background(torchCol.copy(0.08f))
-                    .clickable(onClick = onTorch)
-                    .padding(horizontal = 10.dp, vertical = 6.dp)
-            ) {
-                Text("TORCH ${if (torchOn) "ON" else "OFF"}", fontSize = 8.sp,
-                    color = torchCol, fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold)
-            }
         }
     }
 }

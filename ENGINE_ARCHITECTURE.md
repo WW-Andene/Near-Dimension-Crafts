@@ -463,16 +463,19 @@ confirm it's actually adequate. (b) If GL-thread access is genuinely needed else
 the original intent, add it there instead and keep the doc — but no such caller was found in
 this pass. Recommended: (a).
 
-### 6.2 `WhiteScreenOverlay`'s doc comment promises an API that doesn't exist, and nothing calls it
+### 6.2 `WhiteScreenOverlay`'s doc comment promises an API that doesn't exist, and nothing calls it — DONE
 
 `WhiteScreenOverlay.kt:16-29`: doc comment says "call `trigger()` to fire a single 200ms flash,"
 but there is no `trigger()` — the real signature takes `visible: Boolean` and runs an *infinite*
 `RepeatMode.Restart` transition, not a one-shot flash. Zero callers found anywhere.
 
-**Fix options**: (a) If a one-shot flash cue (e.g. photo-capture feedback) was actually wanted,
-implement `trigger()` for real and wire it to whichever event should cause it. (b) If abandoned,
-retire the composable and its stale doc comment together, deliberately (§3.2) — this is a
-product decision (was a flash effect wanted anywhere?), not a unilateral cleanup call.
+**Fix applied**: option (a) — the flash cue was worth having (visible feedback for a completed
+pose capture during a scan). Rewrote `WhiteScreenOverlay` to take a `trigger: Int` token instead
+of `visible: Boolean`, driven by `Animatable(0f)` + `LaunchedEffect(trigger) { snapTo(1f);
+animateTo(0f, tween(200)) }` — a genuine one-shot 200ms flash, matching the doc comment for real
+this time. Wired to `Scanner.poseCaptureDone` (`ScanCoordinator.start()` now collects it
+unconditionally and increments `AppUiState.captureFlashToken`), called from `MainActivity` as
+`WhiteScreenOverlay(trigger = uiState.captureFlashToken)`.
 
 ## 7. Resource lifecycle (GL leaks and re-initialization — a different bug class from §4–§5's races)
 
@@ -616,7 +619,7 @@ verify the result in this environment).
 **Not dead code.** Doc comments, guard-flag patterns, and purpose-built consumers show these are
 mostly-built features missing one connection, not leftover cruft. §3.2 is the rule this produced.
 
-### 10.1 `AppViewModel.ensureFullBodyCollector()` is built but never started — one call site short of working
+### 10.1 `AppViewModel.ensureFullBodyCollector()` is built but never started — one call site short of working — DONE (partial)
 
 `fullBodyCollectorStarted` (a guard flag) and the function's "ensure..." naming are the standard
 shape for a lazily-started, idempotent collector meant to be triggered from multiple entry
@@ -628,13 +631,19 @@ for it and otherwise unused — is missing exactly the call that starts it. Conc
 `bodyWristHint` on AppViewModel's OSC-velocity path always reads `null`, `perfMonitor`'s
 body-confidence HUD metric is always `0f`, full-body-context gesture classification never runs.
 
-**Open product question**: is full-body-context gesture classification still wanted? If yes:
-add the missing call, and redirect it to read `SpatialFrameProducer`'s own `_latestBodyResult`
-output instead of calling `.retarget()` again (since Producer already retargets body
-independently — starting this collector verbatim would reintroduce a live double-invocation).
-If no: retire it deliberately and document that decision, don't leave it half-built indefinitely.
+**Fix applied**: started the collector from `initCamera()`, and rewrote its body to read
+`SpatialFrameProducer.latestBodyResult`/`latestBodyLandmarks` (both newly exposed as public
+`StateFlow`s) instead of calling `bodyRetargeter.retarget()` a second time — avoids the live
+double-invocation this finding warned about. This incidentally fixes `latestBodyRetargetResult`
+having had zero writers, so the HUD's body-confidence indicator now reflects real data instead of
+always reading `0f`. **Still open, deliberately not done**: wiring
+`CompositeGestureClassifier.classify(FullBodyFrame, slot)` itself — `latestFullBodyFrame` still
+has zero consumers beyond this collector populating it. Whether full-body-context gesture
+classification should actually run is a product decision this document doesn't make unilaterally
+(§3.2); the duplicate-computation bug this finding centered on is fixed regardless of that
+decision.
 
-### 10.2 `renderer.scanCloudPoints` — a working, wired UI toggle with no data feed
+### 10.2 `renderer.scanCloudPoints` — a working, wired UI toggle with no data feed — DONE
 
 `ARRenderer.showCloud` is toggled live and gates a fully functional render path
 (`depthCloudRenderer.updateAndDraw(...)`) — both work. Nothing populates `scanCloudPoints`
@@ -642,11 +651,11 @@ itself. Reads as a live point-cloud preview feature (likely meant to sample
 `spatialLayer.fusedDepth.store.snapshot()`, the same source scan-capture code already reads)
 whose render half was built and whose data-feed half was never connected.
 
-**Fix options**: (a) Wire `scanCloudPoints` to periodically sample `store.snapshot()` while
-`showCloud` is on, the same source AppViewModel's own scan-capture code already reads — likely
-the smallest change that completes the feature. (b) If a live preview was never actually wanted
-(only post-scan viewing), retire the toggle deliberately. Recommended: (a) unless the product
-answer to §10.1's similar question is "we're trimming half-built preview features" broadly.
+**Fix applied**: option (a). The per-hand-frame collector in `AppViewModel` now samples
+`spatialLayer.fusedDepth.store.snapshot()` into `renderer.scanCloudPoints` whenever
+`uiState.value.showCloud` is true — same source scan-capture already reads, sized correctly via
+the store's own two-call `snapshot()` contract (call once for required size, once with a
+properly-sized buffer).
 
 ### 10.3 `SpatialFrameRouter`'s posed-scan capture branch — an asymmetric migration, not dead weight — DONE (Phase 2, same motion as §4.3)
 
@@ -664,20 +673,22 @@ scanning inline permanently and only fix freeform's duplicate — smaller change
 codebase with two different capture architectures for what's conceptually one feature.
 Recommended: (a).
 
-### 10.4 `FreeformPanel` and its `WorkflowMode.FREEFORM` reference — orphaned from a prior design, not "one line away"
+### 10.4 `FreeformPanel` and its `WorkflowMode.FREEFORM` reference — orphaned from a prior design, not "one line away" — DONE (retired)
 
 `FreeformPanel` (`MainActivity.kt:952-1068`) has zero call sites. Unlike §10.1/§10.2, this isn't
 a near-miss — its doc comment references `WorkflowMode.FREEFORM`, a value that no longer exists
 in `WorkflowMode.kt` (whose own comment says "SCAN and FREEFORM are no longer primary modes").
 Reviving this would need redesigning which mode triggers it, not just adding a missing call.
 
-**Open product question**: was the freeform-scan UI intentionally redesigned to drop this panel
-in favor of something else (in which case: retire it and its stale doc comment deliberately), or
-is a `FreeformPanel`-shaped UI still wanted under the current `WorkflowMode` design (in which
-case: rebuild its trigger condition, not just re-add a call site)? Flagged per §3.2 — needs a
-decision, not a unilateral fix in either direction.
+**Resolved**: confirmed `WorkflowMode` has no `FREEFORM` member (verified against the enum
+directly, not inferred) and that the freeform-scan UX is already fully served by a different,
+live mechanism — `onFreeform = { vm.startFreeformScan() }` via the calibrate-sheet flow, plus the
+already-working `FreeformScanOverlay`. This is genuinely superseded code, not a missing wire —
+deleted `FreeformPanel` and its section header comment entirely (one of the two "retire"
+outcomes this document's own §3.2 rule allows for, reached only after confirming zero call sites
+and a working replacement, not a unilateral guess).
 
-### 10.5 `rPPGSource.snsProxy` — a deliberately designed metric with no consumer, corrected from an earlier "safe to delete" misclassification
+### 10.5 `rPPGSource.snsProxy` — a deliberately designed metric with no consumer, corrected from an earlier "safe to delete" misclassification — DONE
 
 **This document previously (in this same research pass) recommended deleting this as wasted
 computation. That was wrong, caught on review before anything was acted on** — exactly the
@@ -692,12 +703,12 @@ reads it externally still holds, verified by repo-wide grep) but has no wired co
 same shape as §10.1–§10.2: a real, deliberately-designed feature (a stress/arousal indicator,
 presumably meant for a biometric or wellness-adjacent UI/OSC output) missing its connection.
 
-**Open product question, not a technical one**: was an SNS/stress indicator meant to reach the
-UI or OSC output (e.g. alongside `sendRppg`)? If yes: wire it to a consumer (e.g. add it to
-`OscStreamer.sendRppg`'s payload or a HUD element) — the computation is already correct and
-tested-by-construction (mirrors `bpm`/`amplitude`'s pattern exactly). If no: retire it
-deliberately and remove the doc section describing it, as one decision, not a unilateral
-deletion of just the code while the doc comment still describes intent.
+**Fix applied**: wired it to OSC. Threaded `snsProxy` through `SpatialFrame.rppgSnsProxy` →
+`SpatialFrameProducer` → new `OscStreamer.sendRppgSns()` → `SpatialFrameRouter`'s existing
+`if (frame.rppgBPM > 0)` warm-up-gated block, right after `sendRppg(...)`. Deliberately used a
+**separate new OSC address** (`/rppg/sns`) rather than extending `/rppg`'s existing argument
+list, specifically so no existing OSC consumer expecting exactly `(amplitude, bpm)` on `/rppg`
+breaks.
 
 **Why this is flagged so explicitly**: it's evidence the mistake §3.2 was written to prevent
 recurred even after the rule existed and even within a pass that was specifically re-reviewing
@@ -724,7 +735,7 @@ of that file staying an orphaned debug utility. **Not done**: no UI button/gestu
 yet — see §10.7, the same gap affects several other already-working methods, and picking where
 this belongs in the UI is a product decision, not a technical one.
 
-### 10.7 Several working `AppViewModel` methods have no UI trigger at all — not a bug, but worth a decision
+### 10.7 Several working `AppViewModel` methods have no UI trigger at all — DONE (partial)
 
 Repo-wide grep for call sites of `toggleCloud()`, `toggleDepth()`, `toggleLiveMesh()` found none,
 anywhere — not from `MainActivity`'s Compose tree, not from a gesture, not from anywhere except
@@ -735,11 +746,17 @@ joins them in the same state) — this isn't dead code the way §10.1-10.5's fea
 for a missing wire; the logic runs fine the moment something calls it. The gap is purely
 UI surface: no button, menu entry, or settings row currently reaches any of them.
 
-**Open product question**: are these meant to get a UI entry point (a settings panel row, a debug
-menu, additional gesture mappings), or are some of them intentionally gesture/code-only by
-design (e.g. torch and camera-switch already have a deliberate gesture-only UX)? Not fixed here —
-picking where five different toggles surface in the UI is a design decision, not a technical one,
-and this document's own scope is diagnosis, not blind UI authorship.
+**Fix applied**: added a new "SPATIAL" section to `SettingsScreen` with toggles/buttons for
+`toggleCloud` (point cloud overlay), `toggleDepth` (TSDF depth reconstruction, with the same
+front-camera guard `AppViewModel.toggleDepth()` already enforces surfaced as visible copy rather
+than a silent no-op), and `toggleRoomMap`/`exportRoomMap`/`clearRoomMap` (room mapping, showing
+the last export path when present). `MainActivity`'s `SettingsScreen(...)` call site now supplies
+these from `uiState`/`scanState`. **Deliberately left unwired**: `toggleLiveMesh()` — it requires
+a loaded scan asset (`assetManager.state.value.name != null`) and reads as contextually tied to a
+model-viewing screen, not general app settings; wiring it into Settings would mean adding
+asset-loaded-state plumbing to a screen that otherwise has none. `switchCamera()`/`toggleTorch()`
+were left as-is (gesture-only), consistent with this finding's own observation that they already
+have a deliberate gesture-only UX distinct from the other toggles.
 
 ## 11. Intentional multi-writer patterns — not bugs, don't "fix" into a violation
 

@@ -202,6 +202,16 @@ class SpatialFrameProducer(
 
     private val _latestBodyResult    = MutableStateFlow<com.arhand.mocap.BodyRetargetResult?>(null)
     private val _latestBodyLandmarks = MutableStateFlow<com.arhand.tracking.PoseLandmarks?>(null)
+
+    /**
+     * This producer's own body-retarget output — the canonical one, computed once per
+     * `bodyPipeline.processed` emission. ENGINE_ARCHITECTURE.md §10.1 — exposed so any other
+     * collector needing the current body retarget (e.g. `AppViewModel.ensureFullBodyCollector`)
+     * reads this instead of calling `bodyRetargeter.retarget()` again with its own state, which
+     * would be a second live retargeting pass computing the same thing redundantly.
+     */
+    val latestBodyResult: StateFlow<com.arhand.mocap.BodyRetargetResult?> = _latestBodyResult
+    val latestBodyLandmarks: StateFlow<com.arhand.tracking.PoseLandmarks?> = _latestBodyLandmarks
     // This producer's own grace-period/EMA state for BodyRetargeter.retarget() — see
     // BodyRetargeter's class doc on why this must not be shared with any other caller.
     private var bodyRetargeterState = BodyRetargeterState.INITIAL
@@ -462,6 +472,7 @@ class SpatialFrameProducer(
             slamDelta            = slamDeltaSnap,
             rppgAmplitude        = rppgSrc.amplitude,
             rppgBPM              = rppgSrc.bpm,
+            rppgSnsProxy         = rppgSrc.snsProxy,
             jbuDepth             = jbuDepth,
             fusionWeights        = fusWeights,
             metricSource         = metricSrc,

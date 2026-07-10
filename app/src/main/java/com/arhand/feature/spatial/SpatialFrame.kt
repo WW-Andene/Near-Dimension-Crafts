@@ -111,6 +111,14 @@ data class SpatialFrame(
     /** rPPG estimated heart rate in BPM. 0 until warm (~4 s). */
     val rppgBPM:       Int,
 
+    /**
+     * ENGINE_ARCHITECTURE.md §10.5 — SNS (sympathetic nervous system) arousal proxy:
+     * rolling standard deviation of [rppgAmplitude] over the last ~32 frames. Higher
+     * values correlate with higher-frequency amplitude variability, a proxy for
+     * stress/arousal. 0 until warm.
+     */
+    val rppgSnsProxy: Float,
+
     // ── v27 Layer 1: joint-bilateral upsampled depth ──────────────────────────
 
     /** JBU 2× upsampled depth grid (16×12, row-major). Null when SL depth unavailable. */

@@ -116,6 +116,16 @@ class ScanCoordinator(
                 biometricHistory = history
             )
         }
+
+        // ENGINE_ARCHITECTURE.md §6.2 — capture-flash trigger. Unlike the poseCaptureDone
+        // collector above (gated on neuralReconEnabled, only used for incremental training),
+        // this one always runs: the flash should fire on every accepted pose regardless of
+        // whether neural reconstruction is on.
+        scope.launch {
+            scanner.poseCaptureDone.collect {
+                uiState.update { it.copy(captureFlashToken = it.captureFlashToken + 1) }
+            }
+        }
     }
 
     /**

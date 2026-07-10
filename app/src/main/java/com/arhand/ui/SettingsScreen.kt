@@ -53,6 +53,15 @@ fun SettingsScreen(
     currentTakeLabel:  String,
     takes:             List<TakeEntry>,
 
+    // ENGINE_ARCHITECTURE.md §10.7 — showCloud/depthMode/roomMap all had working backend
+    // logic with no UI trigger anywhere. isFrontCamera gates depthMode (TSDF needs the rear
+    // camera's metric cloud, same constraint AppViewModel.toggleDepth() already enforces).
+    showCloud:         Boolean,
+    depthMode:         Boolean,
+    isFrontCamera:     Boolean,
+    roomMapActive:     Boolean,
+    roomMapExportPath: String?,
+
     // Callbacks
     onOscHostChange:        (String) -> Unit,
     onOscPortChange:        (Int) -> Unit,
@@ -62,6 +71,11 @@ fun SettingsScreen(
     onConstraintToggle:     () -> Unit,
     onRecalibrateOef:       () -> Unit,
     onTakeLabelChange:      (String) -> Unit,
+    onCloudToggle:          () -> Unit,
+    onDepthToggle:          () -> Unit,
+    onRoomMapToggle:        () -> Unit,
+    onExportRoomMap:        () -> Unit,
+    onClearRoomMap:         () -> Unit,
     onDismiss:              () -> Unit
 ) {
     Box(
@@ -203,6 +217,35 @@ fun SettingsScreen(
                     takes.reversed().forEach { take ->
                         TakeRow(take)
                     }
+                }
+            }
+
+            // ── Spatial (ENGINE_ARCHITECTURE.md §10.7) ────────────────────────
+            SettingsSection("SPATIAL") {
+                SettingsToggle("Point cloud overlay", showCloud, onCloudToggle)
+
+                SettingsToggle("Depth reconstruction (TSDF)", depthMode, onDepthToggle)
+                if (isFrontCamera) {
+                    Text(
+                        "Switch to the rear camera to enable depth reconstruction.",
+                        fontSize = 8.sp, color = Warn, fontFamily = FontFamily.Monospace
+                    )
+                }
+
+                Spacer(Modifier.height(4.dp))
+                SettingsToggle("Room mapping", roomMapActive, onRoomMapToggle)
+
+                Spacer(Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SettingsButton("EXPORT ROOM MAP", onClick = onExportRoomMap)
+                    SettingsButton("CLEAR", onClick = onClearRoomMap)
+                }
+                if (roomMapExportPath != null) {
+                    Text(
+                        "Last export: $roomMapExportPath",
+                        fontSize = 8.sp, color = Color.White.copy(0.3f),
+                        fontFamily = FontFamily.Monospace
+                    )
                 }
             }
         }

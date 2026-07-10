@@ -186,6 +186,9 @@ class SpatialFrameRouter(
             // v27 — rPPG heart rate (only when warmed up)
             if (frame.rppgBPM > 0) {
                 oscStreamer.sendRppg(frame.rppgAmplitude, frame.rppgBPM)
+                // ENGINE_ARCHITECTURE.md §10.5 — SNS arousal proxy, same warm-up gate as
+                // the amplitude/bpm it's derived from.
+                oscStreamer.sendRppgSns(frame.rppgSnsProxy)
             }
 
             // v27 — metric depth grid

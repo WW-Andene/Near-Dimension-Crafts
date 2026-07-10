@@ -512,6 +512,18 @@ class OscStreamer {
     }
 
     /**
+     * Emit `/rppg/sns` — float SNS (sympathetic nervous system) arousal proxy.
+     * ENGINE_ARCHITECTURE.md §10.5 — a separate message rather than a third `/rppg` argument,
+     * so existing `/rppg` consumers expecting exactly (amplitude, bpm) are unaffected.
+     */
+    fun sendRppgSns(snsProxy: Float) {
+        if (!isStreaming) return
+        val skt = socket ?: return; val addr = resolvedAddress ?: return
+        val msg = buildOscFloatArray("/rppg/sns", floatArrayOf(snsProxy))
+        runCatching { skt.send(DatagramPacket(msg, msg.size, addr, port)) }
+    }
+
+    /**
      * Emit `/depth/metric` — 48 floats (8×6 absolute metric depth in metres).
      */
     fun sendDepthMetric(depthBlocks: FloatArray) {
