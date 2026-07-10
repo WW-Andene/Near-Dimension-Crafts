@@ -135,10 +135,9 @@ object GLBExporter {
             val vx = wPositions[vi * 3]
             val vy = wPositions[vi * 3 + 1]
             val vz = wPositions[vi * 3 + 2]
-            val u = (Math.atan2((vx - cx).toDouble(), (vz - cz).toDouble()) / (2.0 * Math.PI) + 0.5).toFloat()
-            val v = ((vy - minY) / yRange).coerceIn(0f, 1f)
-            wUVs[vi * 2]     = u
-            wUVs[vi * 2 + 1] = v
+            val uv = MeshUvProjection.project(vx, vy, vz, cx, cz, minY, yRange)
+            wUVs[vi * 2]     = uv[0]
+            wUVs[vi * 2 + 1] = uv[1]
         }
 
         // BIN: positions | normals | uvs | indices (pad to 4-byte boundary)

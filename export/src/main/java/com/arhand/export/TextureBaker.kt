@@ -42,8 +42,11 @@ object TextureBaker {
     /**
      * R1 — Convenience entry point: bake directly from a raw triangle position array.
      *
-     * Computes cylindrical UVs matching [GLBExporter]'s C2 projection, then delegates
-     * to [bake]. The UV projection is: u = atan2(x, z) / 2π, v = (y - minY) / height.
+     * Computes cylindrical UVs via the same [MeshUvProjection] formula [GLBExporter] uses
+     * for the exported mesh, then delegates to [bake]. Both must agree exactly — this
+     * function previously computed its own independent (uncentred, inverted-V) formula,
+     * which only matched [GLBExporter]'s UVs for a mesh centred at the origin (see
+     * ENGINE_ARCHITECTURE.md §4.1).
      *
      * @param triangles   Flat float array (x,y,z × 3 per triangle), same as [GLBExporter] input.
      * @param poseBitmaps One [Bitmap] per completed scan pose.
@@ -54,25 +57,30 @@ object TextureBaker {
 
         val vertexCount = triangles.size / 3
 
-        // Compute bounding box for UV normalisation
+        // Compute bounding box for UV normalisation — same AABB centring GLBExporter uses.
+        var minX = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE
         var minY = Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
+        var minZ = Float.MAX_VALUE; var maxZ = -Float.MAX_VALUE
         var i = 0
         while (i + 2 < triangles.size) {
-            val y = triangles[i + 1]
+            val x = triangles[i]; val y = triangles[i + 1]; val z = triangles[i + 2]
+            if (x < minX) minX = x; if (x > maxX) maxX = x
             if (y < minY) minY = y; if (y > maxY) maxY = y
+            if (z < minZ) minZ = z; if (z > maxZ) maxZ = z
             i += 3
         }
-        val height = (maxY - minY).coerceAtLeast(1e-4f)
+        val cx = (minX + maxX) * 0.5f
+        val cz = (minZ + maxZ) * 0.5f
+        val yRange = (maxY - minY).coerceAtLeast(1e-4f)
 
-        // Cylindrical UV projection (same as GLBExporter C2)
+        // Cylindrical UV projection — identical formula to GLBExporter's, via MeshUvProjection.
         val uvCoords = FloatArray(vertexCount * 2)
         i = 0; var vi = 0
         while (i + 2 < triangles.size) {
             val x = triangles[i]; val y = triangles[i + 1]; val z = triangles[i + 2]
-            val u = (kotlin.math.atan2(x.toDouble(), z.toDouble()) / (2.0 * Math.PI) + 0.5).toFloat()
-            val v = 1f - (y - minY) / height
-            uvCoords[vi * 2]     = u.coerceIn(0f, 1f)
-            uvCoords[vi * 2 + 1] = v.coerceIn(0f, 1f)
+            val uv = MeshUvProjection.project(x, y, z, cx, cz, minY, yRange)
+            uvCoords[vi * 2]     = uv[0]
+            uvCoords[vi * 2 + 1] = uv[1]
             i += 3; vi++
         }
 
