@@ -132,10 +132,29 @@ class SpatialFrameProducer(
 
     // ── Camera / depth infra ──────────────────────────────────────────────────
 
-    internal val frameProvider = CameraFrameProvider()
+    private val frameProvider = CameraFrameProvider()
     private val depthShim     = BitmapGrayscaleShim()
     private var trackerMgr:   HandTrackerManager? = null
     private var frameJob:     Job? = null
+
+    /**
+     * ARCH-2 — Called with every raw camera bitmap, on the same [frameJob] coroutine that
+     * drives [processBitmap]. Lets `AppViewModel` forward frames to the GL background
+     * texture (`renderer.submitCameraFrame`) without holding a direct reference to
+     * [frameProvider]'s [SharedFlow][kotlinx.coroutines.flow.SharedFlow] — `frameProvider`
+     * is now `private`, so it can no longer gain a second, independent collector the way
+     * `AppViewModel` previously added one (ENGINE_ARCHITECTURE.md §5.3).
+     */
+    var onCameraFrame: ((Bitmap) -> Unit)? = null
+
+    /**
+     * Construct the [com.arhand.camera.CameraController] wired to this producer's
+     * [frameProvider] — the one legitimate external need for that instance (feeding it
+     * frames from the camera hardware), kept to construction time rather than exposing
+     * the property itself for ongoing access.
+     */
+    fun createCameraController(context: android.content.Context): com.arhand.camera.CameraController =
+        com.arhand.camera.CameraController(context, frameProvider)
 
     fun init() {
         trackerMgr = HandTrackerManager(app) { rawHands, conf, ts ->
@@ -148,6 +167,7 @@ class SpatialFrameProducer(
         frameJob = scope.launch(Dispatchers.Default) {
             frameProvider.frames.collect { bitmap ->
                 processBitmap(bitmap)
+                onCameraFrame?.invoke(bitmap)
             }
         }
 

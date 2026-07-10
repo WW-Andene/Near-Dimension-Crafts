@@ -231,10 +231,36 @@ later. Bigger, more invasive, sequenced after Phases 0-7 land and are verified g
    only reset 2 of the 4 flags, leaving the router still thinking a freeform scan was active
    after it had already failed — now fixed for free by routing through the same transition
    function.
-3. **Narrow `AppViewModel`'s visibility to raw tracking streams.** Make `handPipeline`,
-   `bodyPipeline`, and `CameraFrameProvider.frames` inaccessible outside `SpatialFrameProducer`
-   (Kotlin `internal`/module boundaries, not just convention) so the double-writer bugs (§4.4,
-   §5.3) become compile errors if reintroduced, not just a rule someone has to remember.
+3. **Narrow `AppViewModel`'s visibility to raw tracking streams — partially done, rest
+   descoped with a documented reason.** Investigating this before touching anything found the
+   plan's original framing didn't match reality in two ways:
+   - `AppViewModel`'s `handPipeline.processed` collector isn't a duplicate to eliminate — it's
+     the deliberate single entry point that calls `producer.assembleFrame()`; the producer
+     never subscribes to `handPipeline` itself.
+   - `CameraFrameProvider.frames` is a `SharedFlow`, designed for multiple independent
+     collectors. `AppViewModel`'s second collector (feeding the GL background texture) was
+     legitimate multicast use, not the §5.3 hazard it looked like — §4.4 (the actual
+     double-writer bug this item cites) was already fixed in Phase 3.
+
+   **Done**: `frameProvider` is now `private` in `SpatialFrameProducer`. `AppViewModel` no
+   longer holds a reference to it at all — camera frames reach `renderer.submitCameraFrame`
+   via a new `producer.onCameraFrame` callback, and `CameraController` (the one legitimate
+   external need for the raw provider, to feed it frames from hardware) is now constructed by
+   `producer.createCameraController(context)` instead of `AppViewModel` reaching into
+   `producer.frameProvider` to build it externally. This is real, compiler-enforced narrowing:
+   nothing outside the producer can add a second collector to that flow anymore.
+
+   **Descoped**: full `handPipeline`/`bodyPipeline` narrowing. Both are constructed by
+   `AppViewModel` itself (not owned by the producer) and read directly in at least 3-4 distinct,
+   legitimate places beyond the producer — scan quality gating, raw skeleton-overlay rendering,
+   and the dormant `ensureFullBodyCollector`, at minimum. Real enforcement would mean moving
+   their *construction* into the producer and exposing only derived outputs everywhere — which
+   runs into live, frequently-exercised scan/tracking code, not just dormant paths. In practice
+   this depends on item 5's decomposition existing first: `AppViewModel` reads these streams in
+   so many places precisely because it's still one large coordinator; there isn't yet a smaller
+   destination class to hand narrowed access to. Attempting it now would be a large, separately
+   risky change for a bug class (§4.4) already fixed elsewhere — not something to bundle into
+   this pass.
 4. **Make retargeters pure** — DONE, scope corrected during implementation. `BoneRetargeter`
    turned out to already be pure (no internal mutable fields at all — verified by reading it;
    its `bindPose` is a read-only constructor `val`), so only `BodyRetargeter` needed the change.

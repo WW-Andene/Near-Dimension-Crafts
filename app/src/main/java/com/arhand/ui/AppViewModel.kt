@@ -350,12 +350,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         renderer.onGlSurfaceCreated = { textureId -> producer.setCameraTextureName(textureId) }
         renderer.onDepthFrameTick   = { producer.onGlFrame() }
 
-        // Camera frames → renderer background texture
-        viewModelScope.launch {
-            producer.frameProvider.frames.collect { bitmap ->
-                renderer.submitCameraFrame(bitmap)
-            }
-        }
+        // Camera frames → renderer background texture. Via a callback rather than a second
+        // collector on producer's frameProvider.frames (ENGINE_ARCHITECTURE.md §5.3) —
+        // frameProvider is now private to SpatialFrameProducer.
+        producer.onCameraFrame = { bitmap -> renderer.submitCameraFrame(bitmap) }
 
         // Producer → SpatialFrame → router → all consumers
         router.onRetargetResult = { result ->
@@ -605,7 +603,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun initCamera(owner: LifecycleOwner) {
         uiState.update { it.copy(cameraPermissionDenied = false) }
-        val cc = CameraController(getApplication(), producer.frameProvider)
+        val cc = producer.createCameraController(getApplication())
         cameraController = cc
         producer.isFrontCamera = uiState.value.isFrontCamera
         producer.init()
