@@ -294,7 +294,7 @@ later. Bigger, more invasive, sequenced after Phases 0-7 land and are verified g
    longer possible regardless of what's decided about §10.1.
 5. **Decompose `AppViewModel` and `FusedDepthSource`** into smaller, single-responsibility
    coordinators once 1-4 reduce how much cross-cutting state they need to hold directly —
-   **started, scoped to one bounded extraction.** A full decomposition of either class is a
+   **DONE, scoped to one bounded extraction.** A full decomposition of either class is a
    much larger undertaking than 1-4 combined, and this environment has no way to verify runtime
    behavior beyond CI compilation (no device). Extracted `ScanCoordinator`
    (`feature/scan/ScanCoordinator.kt`) — posed/freeform scan lifecycle orchestration
@@ -313,7 +313,13 @@ later. Bigger, more invasive, sequenced after Phases 0-7 land and are verified g
    lifecycle this extraction owns), the per-hand-frame fused-depth/TSDF integration block stays
    inline (tightly coupled to that collector's locals, not a standalone callable unit), and
    `FusedDepthSource` itself is not decomposed — a second, separately-scoped extraction, not
-   attempted in this pass.
+   attempted in this pass. CI-verified green (commit `9fe6be3`, workflow run `29113742152`)
+   after fixing two compile errors surfaced by the initial extraction commit: a missing
+   `kotlinx.coroutines.flow.update` import in `ScanCoordinator.kt`, and an initialization-order
+   bug in `AppViewModel.kt` (the old scan-watcher `init {}` block called `scanCoordinator.start()`
+   textually before the `scanCoordinator` property's own declaration further down the file —
+   Kotlin runs property initializers/init blocks in strict textual order, so this must be a
+   separate `init {}` block placed after the declaration, not the original call site).
 
 Sequenced last because 1-4 are genuine redesigns of working code, higher risk, and only worth
 doing once the concrete bugs in Phases 0-7 are fixed and confirmed — redesigning underneath
