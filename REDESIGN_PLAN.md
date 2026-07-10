@@ -44,26 +44,43 @@ second independent implementation is exactly how this drifted apart once already
 `LaunchedEffect` in `MainActivity.kt:159-163` keys off a change in that id, not off the
 ambient `hasStoredModel` boolean, so cancelling or failing a later scan can't re-trigger it.
 
-## Phase 2 — Consolidate scan-capture ownership (resolves §4.3 and §10.3 together)
+## Phase 2 — Consolidate scan-capture ownership (resolves §4.3 and §10.3 together) — DONE
 
 **Decision**: `SpatialFrameRouter` becomes the single owner of frame capture for both posed and
 freeform scans.
 
-1. Wire `router.isScanActive = true` inside `startScan()` (posed scans currently never touch
-   this flag at all).
-2. Verify the router's posed-scan capture branch (`SpatialFrameRouter.kt:213-223`) — dormant
-   since it's never run today — actually produces equivalent output to `AppViewModel`'s current
-   inline capture, before removing the inline path. This is the one step in this whole plan that
-   needs real verification, not just a diff: that branch has never executed in production.
-3. Once verified, delete `AppViewModel`'s inline capture for *both* posed
-   (`AppViewModel.kt:475-480`-equivalent) and freeform (`AppViewModel.kt:525-533`) scans, and
-   delete the freeform inline call specifically, since it's the direct cause of §4.3's
-   double-invocation.
+Verification (step 2 below) found the dormant router branch was **not** actually equivalent to
+`AppViewModel`'s inline capture in two ways — both fixed before wiring anything live:
 
-This is the highest-value single workstream in the plan: it resolves a live scan-quality bug
-(§4.3) and an architectural inconsistency (§10.3) with one change, and it's the same "make the
-router canonical, delete the legacy inline path" move already proven safe once this session (the
-hand-retarget consolidation).
+- **Posed-scan gate/quality mismatch**: the router's branch gated only on `isScanActive` (no
+  `Scanner.ScanState` check) and used `frame.frameConfidence` for quality, while
+  `AppViewModel`'s inline capture gated on `scanner.status.value.state == CAPTURING` and used
+  `scanner.status.value.quality` — a different signal. Flipping the flag as originally planned
+  would have started capturing PREFLIGHT/COUNTDOWN frames with the wrong quality value, silently
+  degrading scan quality. Fixed by adding the same `CAPTURING` gate and quality source to the
+  router (`scanner` was already a constructor dependency, just unused for this).
+- **Freeform bitmap texture-bake regression**: the router's freeform branch always passed
+  `bitmap = null` to `freeformScanner.update()` with a comment "sampled separately via
+  latestBitmap" — but nothing else in the router ever did that sampling. Deleting
+  `AppViewModel`'s inline call (which passed the real bitmap) as originally planned would have
+  silently broken texture baking for every freeform scan. Fixed by adding a
+  `latestBitmapProvider: () -> Bitmap?` constructor parameter to `SpatialFrameRouter`, wired from
+  `AppViewModel` as `{ producer.latestBitmap }` (already `@Volatile` on `SpatialFrameProducer`).
+
+Implemented:
+1. `router.isScanActive = true` in `startScan()`, `= false` in `cancelScan()` and both the
+   success and catch paths of `processScan()` (mirroring freeform's existing lifecycle).
+2. Router's posed-scan and freeform branches fixed as above, verified equivalent (not just
+   diffed) before touching the inline path.
+3. Deleted `AppViewModel`'s inline `capturedFrames`/`biometricFrames` writes (posed) and inline
+   `freeformScanner.update()` call (freeform) — the exact cause of §4.3's double-invocation.
+   `AppViewModel` still owns fused-depth/TSDF integration for both scan types; that was never
+   part of this migration.
+
+This is the same "make the router canonical, delete the legacy inline path" move already proven
+safe once this session (the hand-retarget consolidation) — but this time the pre-deletion review
+(the standing rule from earlier this session) caught two real, silent regressions the plan itself
+didn't anticipate, confirming why that rule exists.
 
 ## Phase 3 — Delete the remaining duplicate-writer patterns
 

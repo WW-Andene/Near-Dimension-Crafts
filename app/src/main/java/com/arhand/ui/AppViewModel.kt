@@ -14,7 +14,6 @@ import com.arhand.camera.BitmapGrayscaleShim
 import com.arhand.depth.ArDepthAvailability
 import com.arhand.depth.DepthSourceCallback
 import com.arhand.depth.DepthApiCarver
-import com.arhand.depth.DepthCarver
 import com.arhand.depth.HandSegmentationMask
 import com.arhand.depth.NeuralImplicitCarver
 import com.arhand.depth.ManoShapeFitter
@@ -178,13 +177,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val tsdfVolume = com.arhand.depth.TSDFVolume()
     // ── SpatialFrameRouter — distributes frames to all consumers ─────────────
     val router = com.arhand.feature.spatial.SpatialFrameRouter(
-        scope           = viewModelScope,
-        oscStreamer     = oscStreamer,
-        motionRecorder  = motionRecorder,
-        renderer        = renderer,
-        scanner         = scanner,
-        freeformScanner = freeformScanner,
-        tsdfVolume      = tsdfVolume
+        scope               = viewModelScope,
+        oscStreamer         = oscStreamer,
+        motionRecorder      = motionRecorder,
+        renderer            = renderer,
+        scanner             = scanner,
+        freeformScanner     = freeformScanner,
+        tsdfVolume          = tsdfVolume,
+        latestBitmapProvider = { producer.latestBitmap }
     )
 
     // ── Scan accumulation (delegated to router) ───────────────────────────────
@@ -464,21 +464,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                         bodyLandmarks   = bodyPipeline.processed.value.takeIf { trackingManager.state.value.bodyEnabled }
                     )
 
-                    // Capture frames for depth carving — B1: store quality score per frame
-                    // Only accumulate during CAPTURING; PREFLIGHT/COUNTDOWN frames have quality=0f
-                    // and would dilute the SDF carver's top-75% quality filter.
+                    // capturedFrames/biometricFrames for the posed scan are now written
+                    // exclusively by SpatialFrameRouter.route() (same CAPTURING-state gate,
+                    // same scanner.status.value.quality source) — see REDESIGN_PLAN.md Phase 2.
+                    // This block still owns fused-depth/TSDF integration, which was not part
+                    // of that migration.
                     if (uiState.value.scanActive &&
                         scanner.status.value.state == Scanner.ScanState.CAPTURING) {
                         primary?.landmarks?.let { lms ->
                             if (lms.size == 21) {
-                                val quality = scanner.status.value.quality
-                                capturedFrames.add(Pair(DepthCarver.landmarksToWorld(lms, aspect, mirrorX = uiState.value.isFrontCamera), quality))
-                                // Accumulate for biometrics — sample every 3rd frame to reduce
-                                // redundancy while still getting coverage across the pose hold
-                                if (capturedFrames.size % 3 == 0) {
-                                    biometricFrames.add(Pair(lms, quality))
-                                }
-
                                 // Fused depth — snapshot from all active sources (ARCore + SfM + Photo)
                                 if (scanState.value.depthMode) {
                                     val fused = spatialLayer.fusedDepth
@@ -513,25 +507,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                         }
                     }
 
-                    // LIMIT-2 — Feed freeform scanner when it is the active scan mode
+                    // Freeform capture (freeformScanner.update) is now called exclusively by
+                    // SpatialFrameRouter.route() — this used to also call it inline here,
+                    // double-invoking it on every frame from two different threads
+                    // (ENGINE_ARCHITECTURE.md §4.3). This block still owns freeform's
+                    // depth/TSDF integration, which was not part of that migration.
                     if (scanState.value.freeformActive) {
-                        val worldFrames = primary?.landmarks?.let { lms ->
-                            if (lms.size == 21)
-                                com.arhand.depth.DepthCarver.landmarksToWorld(
-                                    lms, aspect, mirrorX = uiState.value.isFrontCamera
-                                )
-                            else null
-                        }
-                        freeformScanner.update(
-                            lms           = primary?.landmarks,
-                            claheContrast = clahe.lastContrastScore,
-                            bitmap        = latestBitmap,
-                            worldFrames   = worldFrames,
-                            aspect        = aspect,
-                            mirrorX       = uiState.value.isFrontCamera,
-                            nowMs         = System.currentTimeMillis()
-                        )
-
                         // Depth integration for freeform — same ARCore/SfM path as posed scan
                         if (scanState.value.depthMode) {
                             primary?.landmarks?.let { lms ->
@@ -864,6 +845,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
 
+        router.isScanActive = true
         scanner.start()
     }
 
@@ -884,6 +866,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         uiState.update { it.copy(scanActive = false) }
         scanState.value = scanState.value.copy(depthMode = false)
         spatialLayer.setReconstructionActive(false)
+        router.isScanActive = false
     }
 
     // ─── LIMIT-2: Freeform (continuous) scan ─────────────────────────────────
@@ -1155,6 +1138,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 uiState.update { it.copy(scanActive = false) }
                 scanState.value = scanState.value.copy(depthMode = false)
                 spatialLayer.setReconstructionActive(false)
+                router.isScanActive = false
 
             } catch (e: Exception) {
                 scanner.markFailed(e.message ?: "Processing error")
@@ -1165,6 +1149,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 uiState.update { it.copy(scanActive = false) }
                 scanState.value = scanState.value.copy(depthMode = false)
                 spatialLayer.setReconstructionActive(false)
+                router.isScanActive = false
             }
         }
     }

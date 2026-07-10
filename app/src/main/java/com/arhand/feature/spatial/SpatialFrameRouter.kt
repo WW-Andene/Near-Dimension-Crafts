@@ -55,7 +55,9 @@ class SpatialFrameRouter(
     private val renderer:     ARRenderer,
     private val scanner:      Scanner,
     private val freeformScanner: FreeformScanner,
-    private val tsdfVolume:   TSDFVolume
+    private val tsdfVolume:   TSDFVolume,
+    /** Supplies the current camera bitmap for freeform texture-bake sampling (see [route]). */
+    private val latestBitmapProvider: () -> android.graphics.Bitmap? = { null }
 ) {
     // ── Callbacks from AppViewModel ───────────────────────────────────────────
 
@@ -210,30 +212,34 @@ class SpatialFrameRouter(
         }
 
         // ── Scan accumulation ─────────────────────────────────────────────────
-        if (isScanActive && primaryLms != null) {
+
+        // Posted scan — same gate and quality source AppViewModel used before this was
+        // consolidated here: only accumulate during CAPTURING (PREFLIGHT/COUNTDOWN frames
+        // have no real quality signal and would dilute the SDF carver's top-75% filter),
+        // and use the Scanner's own pose-hold quality, not the general per-frame tracking
+        // confidence — the two are different signals (see ENGINE_ARCHITECTURE.md §4.3/§10.3).
+        if (isScanActive && !isFreeformActive && primaryLms != null &&
+            scanner.status.value.state == Scanner.ScanState.CAPTURING) {
             val worldFrames = DepthCarver.landmarksToWorld(primaryLms, aspect, frame.isFrontCamera)
-            val quality     = frame.frameConfidence
-
-            // Posted scan
-            if (!isFreeformActive) {
-                capturedFrames.add(Pair(worldFrames, quality))
-                if (capturedFrames.size % 3 == 0) {
-                    biometricFrames.add(Pair(primaryLms, quality))
-                }
+            val quality     = scanner.status.value.quality
+            capturedFrames.add(Pair(worldFrames, quality))
+            if (capturedFrames.size % 3 == 0) {
+                biometricFrames.add(Pair(primaryLms, quality))
             }
+        }
 
-            // Freeform scan
-            if (isFreeformActive) {
-                freeformScanner.update(
-                    lms           = primaryLms,
-                    claheContrast = claheContrast,
-                    bitmap        = null,   // bitmap sampled separately via latestBitmap
-                    worldFrames   = worldFrames,
-                    aspect        = aspect,
-                    mirrorX       = frame.isFrontCamera,
-                    nowMs         = frame.timestamp
-                )
-            }
+        // Freeform scan
+        if (isScanActive && isFreeformActive) {
+            val worldFrames = primaryLms?.let { DepthCarver.landmarksToWorld(it, aspect, frame.isFrontCamera) }
+            freeformScanner.update(
+                lms           = primaryLms,
+                claheContrast = claheContrast,
+                bitmap        = latestBitmapProvider(),
+                worldFrames   = worldFrames,
+                aspect        = aspect,
+                mirrorX       = frame.isFrontCamera,
+                nowMs         = frame.timestamp
+            )
         }
     }
 
