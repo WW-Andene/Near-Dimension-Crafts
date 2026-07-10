@@ -121,6 +121,14 @@ class SpatialFrameProducer(
     @Volatile var slEnabled:         Boolean = false
     @Volatile var isFrontCamera:     Boolean = true
 
+    /**
+     * Mirrors AppUiState.scanActive (kept in sync by a single collector in AppViewModel's
+     * init, not by threading a second flag through every scan start/cancel/complete call
+     * site — that duplication pattern is exactly what caused earlier bugs this session
+     * where a lifecycle flag was set in some places but not others).
+     */
+    @Volatile var scanActive:        Boolean = false
+
     // ── Camera / depth infra ──────────────────────────────────────────────────
 
     internal val frameProvider = CameraFrameProvider()
@@ -202,7 +210,11 @@ class SpatialFrameProducer(
         if (!frameThrottler.shouldInfer()) return
 
         val inferStart = System.currentTimeMillis()
-        clahe.process(bitmap)
+        // clahe.lastContrastScore only feeds Scanner/FreeformScanner's quality gating
+        // (AppViewModel passes it into scanner.update/freeformScanner.update) — nothing
+        // reads it during plain live tracking, so only run this pass (Bitmap.createScaledBitmap
+        // + 64-tile histogram + bilinear pass) while a scan is actually active.
+        if (scanActive) clahe.process(bitmap)
 
         // Hand inference
         trackerMgr?.detect(bitmap, ts)

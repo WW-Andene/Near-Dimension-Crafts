@@ -79,9 +79,17 @@ class RollingShutterStereo {
 
         val w = bitmap.width; val h = bitmap.height
 
-        // Estimate horizontal velocity from the top strip of consecutive frames
+        // Estimate horizontal velocity from the top strip of consecutive frames.
+        // Bulk-fetch the strip once via getPixels() instead of calling Bitmap.getPixel()
+        // per sample inside the search loop below — the same clamped-per-access math
+        // runs against these arrays instead of round-tripping into native code per pixel.
         val stripH = (h * STRIP_FRACTION).toInt().coerceAtLeast(PATCH_HALF * 2 + 1)
-        val vx = estimateHorizontalShift(prev, bitmap, 0, stripH, w)
+        val prevTopStrip = IntArray(w * stripH)
+        val currTopStrip = IntArray(w * stripH)
+        prev.getPixels(prevTopStrip, 0, w, 0, 0, w, stripH)
+        bitmap.getPixels(currTopStrip, 0, w, 0, 0, w, stripH)
+
+        val vx = estimateHorizontalShift(prevTopStrip, currTopStrip, stripH, w)
         lastVelocityPx = vx
 
         if (abs(vx) < MIN_DISPARITY) {
@@ -95,16 +103,32 @@ class RollingShutterStereo {
         val baselinePx = abs(vx) * ROW_DELAY_SEC * (h - stripH).toFloat()
         if (baselinePx < 0.01f) { lastDepthBlocks = null; return }
 
+        val topY2 = (topY + stripH / 2).coerceIn(0, h - 1)
+        val botY2 = (botY + stripH / 2).coerceIn(0, h - 1)
+
+        // Bulk-fetch the two row bands computeSADDisparity's search touches (±PATCH_HALF
+        // around topY2/botY2, full width) once, instead of two getPixel() calls per
+        // (column × disparity × dy × dx) combination — tens of thousands of JNI round
+        // trips per process() call collapse into two bulk reads.
+        val topStart = (topY2 - PATCH_HALF).coerceIn(0, h - 1)
+        val topBandH = (topY2 + PATCH_HALF).coerceIn(0, h - 1) - topStart + 1
+        val botStart = (botY2 - PATCH_HALF).coerceIn(0, h - 1)
+        val botBandH = (botY2 + PATCH_HALF).coerceIn(0, h - 1) - botStart + 1
+        val topBand = IntArray(w * topBandH)
+        val botBand = IntArray(w * botBandH)
+        bitmap.getPixels(topBand, 0, w, 0, topStart, w, topBandH)
+        bitmap.getPixels(botBand, 0, w, 0, botStart, w, botBandH)
+
         val blocks = FloatArray(BLOCK_COUNT)
         val counts = IntArray(BLOCK_COUNT)
         val colW   = w.toFloat() / blockW
         val sign   = if (vx > 0) 1 else -1
 
         for (bx in 0 until blockW) {
-            val cx     = ((bx + 0.5f) * colW).toInt().coerceIn(0, w - 1)
-            val topY2  = (topY + stripH / 2).coerceIn(0, h - 1)
-            val botY2  = (botY + stripH / 2).coerceIn(0, h - 1)
-            val disp   = computeSADDisparity(bitmap, cx, topY2, botY2, w, h, sign)
+            val cx   = ((bx + 0.5f) * colW).toInt().coerceIn(0, w - 1)
+            val disp = computeSADDisparity(
+                topBand, topStart, topY2, botBand, botStart, botY2, cx, w, h, sign
+            )
             if (disp < MIN_DISPARITY) continue
 
             val z = baselinePx * FOCAL_PX / disp
@@ -157,20 +181,25 @@ class RollingShutterStereo {
         }
     }
 
-    /** Estimate horizontal pixel shift between top strips of two frames via SAD. */
+    /**
+     * Estimate horizontal pixel shift between top strips of two frames via SAD.
+     * [prevStrip]/[currStrip] are pre-fetched rows [0, stripH) at full width [w] — the
+     * "stripY" the class doc/callers reason about is always 0 for the single call site.
+     */
     private fun estimateHorizontalShift(
-        prev: Bitmap, curr: Bitmap,
-        stripY: Int, stripH: Int, w: Int
+        prevStrip: IntArray, currStrip: IntArray,
+        stripH: Int, w: Int
     ): Float {
         var bestShift = 0; var bestSad = Int.MAX_VALUE
         val cx = w / 2
         for (shift in -MAX_DISP..MAX_DISP) {
             var sad = 0
-            for (y in stripY until (stripY + stripH) step 4) {
+            for (y in 0 until stripH step 4) {
+                val row = y * w
                 for (dx in -PATCH_HALF..PATCH_HALF step 2) {
                     val px = (cx + dx).coerceIn(0, w - 1)
                     val sx = (cx + dx + shift).coerceIn(0, w - 1)
-                    sad  += abs(lumaOf(prev.getPixel(px, y)) - lumaOf(curr.getPixel(sx, y)))
+                    sad  += abs(lumaOf(prevStrip[row + px]) - lumaOf(currStrip[row + sx]))
                 }
             }
             if (sad < bestSad) { bestSad = sad; bestShift = shift }
@@ -178,20 +207,29 @@ class RollingShutterStereo {
         return bestShift.toFloat()
     }
 
-    /** SAD block matching between top and bottom strip at column [cx]. */
+    /**
+     * SAD block matching between top and bottom strip at column [cx].
+     * [topBand]/[botBand] are pre-fetched rows [topStart, topStart+topBandH) and
+     * [botStart, botStart+botBandH) (full width [w]) covering every row [topY]/[botY] ±
+     * [PATCH_HALF] can clamp to — see the bulk-fetch in [process].
+     */
     private fun computeSADDisparity(
-        bmp: Bitmap, cx: Int, topY: Int, botY: Int, w: Int, h: Int, sign: Int
+        topBand: IntArray, topStart: Int, topY: Int,
+        botBand: IntArray, botStart: Int, botY: Int,
+        cx: Int, w: Int, h: Int, sign: Int
     ): Float {
         var bestDisp = 0; var bestSad = Int.MAX_VALUE
         for (d in 0..MAX_DISP) {
             var sad = 0
             for (dy in -PATCH_HALF..PATCH_HALF) {
+                val ty = (topY + dy).coerceIn(0, h - 1)
+                val by = (botY + dy).coerceIn(0, h - 1)
+                val topRow = (ty - topStart) * w
+                val botRow = (by - botStart) * w
                 for (dx in -PATCH_HALF..PATCH_HALF) {
-                    val tx = (cx + dx).coerceIn(0, w - 1)
-                    val ty = (topY + dy).coerceIn(0, h - 1)
-                    val bx = (cx + dx + sign * d).coerceIn(0, w - 1)
-                    val by = (botY + dy).coerceIn(0, h - 1)
-                    sad  += abs(lumaOf(bmp.getPixel(tx, ty)) - lumaOf(bmp.getPixel(bx, by)))
+                    val tx    = (cx + dx).coerceIn(0, w - 1)
+                    val bxPix = (cx + dx + sign * d).coerceIn(0, w - 1)
+                    sad  += abs(lumaOf(topBand[topRow + tx]) - lumaOf(botBand[botRow + bxPix]))
                 }
             }
             if (sad < bestSad) { bestSad = sad; bestDisp = d }

@@ -374,6 +374,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
 
+        // Keep producer.scanActive in sync with uiState.scanActive from one place,
+        // instead of threading a second flag through every scan start/cancel/complete
+        // call site (startScan/cancelScan/processScan/startFreeformScan/...).
+        viewModelScope.launch {
+            uiState.collect { producer.scanActive = it.scanActive }
+        }
+
         // Wire tracking results → producer.assembleFrame() → SpatialFrame → router.
         // All retargeting, SL z-correction, body alignment, morph weights, OSC, BVH,
         // and motion-capture recording happen once inside producer/router (wired

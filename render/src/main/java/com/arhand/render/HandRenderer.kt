@@ -31,6 +31,38 @@ class HandRenderer {
         // Dash-cycle length in world units — hand skeleton coords span roughly
         // -1..1, so this gives a handful of dots per bone segment.
         private const val DASH_CYCLE_WORLD_UNITS = 0.035f
+
+        // Finger signature palettes (slot 0 = warm/primary hand, slot 1 = cool/secondary
+        // hand) — hoisted out of drawMesh()/drawWireframe() so these fixed colours aren't
+        // reallocated (5 FloatArrays + a wrapping Array each) on every single frame.
+        private val FINGER_SIG_COLORS_WARM = arrayOf(
+            floatArrayOf(1.00f, 0.82f, 0.00f), // thumb  — gold
+            floatArrayOf(0.00f, 0.85f, 1.00f), // index  — cyan
+            floatArrayOf(0.20f, 1.00f, 0.45f), // middle — green
+            floatArrayOf(0.85f, 0.20f, 1.00f), // ring   — violet
+            floatArrayOf(1.00f, 0.45f, 0.10f)  // pinky  — orange
+        )
+        private val FINGER_SIG_COLORS_COOL = arrayOf(
+            floatArrayOf(0.85f, 0.85f, 0.85f), // thumb  — silver
+            floatArrayOf(0.40f, 0.70f, 1.00f), // index  — sky blue
+            floatArrayOf(0.00f, 0.85f, 0.75f), // middle — teal
+            floatArrayOf(1.00f, 0.40f, 0.65f), // ring   — pink
+            floatArrayOf(1.00f, 0.75f, 0.00f)  // pinky  — amber
+        )
+        private val FINGER_WIRE_COLORS_WARM = arrayOf(
+            floatArrayOf(1.00f, 0.82f, 0.00f, 0.75f), // thumb  — gold
+            floatArrayOf(0.00f, 0.85f, 1.00f, 0.75f), // index  — cyan
+            floatArrayOf(0.20f, 1.00f, 0.45f, 0.75f), // middle — green
+            floatArrayOf(0.85f, 0.20f, 1.00f, 0.75f), // ring   — violet
+            floatArrayOf(1.00f, 0.45f, 0.10f, 0.75f)  // pinky  — orange
+        )
+        private val FINGER_WIRE_COLORS_COOL = arrayOf(
+            floatArrayOf(0.85f, 0.85f, 0.85f, 0.75f), // thumb  — silver
+            floatArrayOf(0.40f, 0.70f, 1.00f, 0.75f), // index  — sky blue
+            floatArrayOf(0.00f, 0.85f, 0.75f, 0.75f), // middle — teal
+            floatArrayOf(1.00f, 0.40f, 0.65f, 0.75f), // ring   — pink
+            floatArrayOf(1.00f, 0.75f, 0.00f, 0.75f)  // pinky  — amber
+        )
     }
     private var phongProgram  = 0
     private var basicProgram  = 0
@@ -187,28 +219,14 @@ class HandRenderer {
         normalMatrix[6] = model[8]; normalMatrix[7] = model[9]; normalMatrix[8] = model[10]
 
         setMatrixUniforms(phongProgram, model, view, proj)
-        GLES30.glUniformMatrix3fv(
-            GLES30.glGetUniformLocation(phongProgram, "uNormalMatrix"), 1, false, normalMatrix, 0
-        )
+        GLES30.glUniformMatrix3fv(phongLoc["uNormalMatrix"]!!, 1, false, normalMatrix, 0)
         setLightingUniforms(phongProgram, torchOn, timeSec, pts)
 
         GLES30.glUniform1f(phongLoc["uAlpha"]!!, 0.97f)
         GLES30.glUniform1f(phongLoc["uTime"]!!, timeSec)
 
         // Finger signature colours — slot 0 = warm, slot 1 = cool (RGB only, no alpha)
-        val fingerSigColors = if (currentSlot == 0) arrayOf(
-            floatArrayOf(1.00f, 0.82f, 0.00f), // thumb  — gold
-            floatArrayOf(0.00f, 0.85f, 1.00f), // index  — cyan
-            floatArrayOf(0.20f, 1.00f, 0.45f), // middle — green
-            floatArrayOf(0.85f, 0.20f, 1.00f), // ring   — violet
-            floatArrayOf(1.00f, 0.45f, 0.10f)  // pinky  — orange
-        ) else arrayOf(
-            floatArrayOf(0.85f, 0.85f, 0.85f), // thumb  — silver
-            floatArrayOf(0.40f, 0.70f, 1.00f), // index  — sky blue
-            floatArrayOf(0.00f, 0.85f, 0.75f), // middle — teal
-            floatArrayOf(1.00f, 0.40f, 0.65f), // ring   — pink
-            floatArrayOf(1.00f, 0.75f, 0.00f)  // pinky  — amber
-        )
+        val fingerSigColors = if (currentSlot == 0) FINGER_SIG_COLORS_WARM else FINGER_SIG_COLORS_COOL
 
         // Draw each finger tube with a 25% colour tint blended into the skin base
         val unitR = computeUnitR(pts)
@@ -272,19 +290,7 @@ class HandRenderer {
         val colorLoc = lineLoc["uColor"] ?: return
 
         // Same slot-indexed palette as skeleton mode — warm (slot 0) or cool (slot 1).
-        val fingerColors = if (currentSlot == 0) arrayOf(
-            floatArrayOf(1.00f, 0.82f, 0.00f, 0.75f), // thumb  — gold
-            floatArrayOf(0.00f, 0.85f, 1.00f, 0.75f), // index  — cyan
-            floatArrayOf(0.20f, 1.00f, 0.45f, 0.75f), // middle — green
-            floatArrayOf(0.85f, 0.20f, 1.00f, 0.75f), // ring   — violet
-            floatArrayOf(1.00f, 0.45f, 0.10f, 0.75f)  // pinky  — orange
-        ) else arrayOf(
-            floatArrayOf(0.85f, 0.85f, 0.85f, 0.75f), // thumb  — silver
-            floatArrayOf(0.40f, 0.70f, 1.00f, 0.75f), // index  — sky blue
-            floatArrayOf(0.00f, 0.85f, 0.75f, 0.75f), // middle — teal
-            floatArrayOf(1.00f, 0.40f, 0.65f, 0.75f), // ring   — pink
-            floatArrayOf(1.00f, 0.75f, 0.00f, 0.75f)  // pinky  — amber
-        )
+        val fingerColors = if (currentSlot == 0) FINGER_WIRE_COLORS_WARM else FINGER_WIRE_COLORS_COOL
 
         for (fi in HandMeshBuilder.FINGER_CHAINS.indices) {
             if (fi < fingerColors.size) GLES30.glUniform4fv(colorLoc, 1, fingerColors[fi], 0)
