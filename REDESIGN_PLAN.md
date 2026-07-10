@@ -497,21 +497,46 @@ implemented yet, see its own write-up for why.
    (c)) — scoped as its own pass since it'd mean adding per-joint velocity-EMA state to
    `BodyRetargeter`, a larger change to its pure-retargeter design (§8.4) than bundling in here.
 
-**§17.3 (low-light CLAHE/exposure) intentionally not started this phase** — real new engineering
-(applying CLAHE to the tracking-facing image, manual exposure override, both needing dark-scene
-gating to avoid changing behavior in normal light) with regression risk this environment can't
-verify without a device. Scoped in ENGINE_ARCHITECTURE.md §17.3 with a sequenced fix plan
-((a) applied+gated CLAHE → (b) manual exposure → (c) gamma/unsharp → (d) multi-frame stacking,
-each independently revertable), to be picked up as its own pass.
+## Phase 12 — §17.3: port DarkVision.jsx's low-light techniques, improved rather than copied — DONE (detection path; depth-channel + stacking deferred)
+
+Directly requested: "scrap darkvision, take what you can, convert to kotlin and implement
+correctly. then improve it." Ported the prototype's per-frame techniques into a new
+`camera.LowLightEnhancer` (hot-pixel suppression, multi-scale CLAHE, gamma lift, unsharp mask) and
+a new `CameraController.setLowLightExposure()` (manual exposure/ISO), with four deliberate
+improvements over a direct port:
+
+1. **Dark-gated with hysteresis**, not always-on — the prototype ran its full pipeline the moment
+   it started; here, `SpatialFrameProducer` samples mean luminance every frame (cheap) and only
+   engages enhancement/manual-exposure while actually dark, so normal lighting is unaffected.
+2. **Luma-only, chroma preserved** — the prototype's final output is fully grayscale; this
+   recombines enhanced luminance with the frame's own original chrominance, so tracking still
+   sees a plausible colour image.
+3. **Manual exposure toggled dynamically** (`Camera2CameraControl`'s capture-request options) with
+   an exposure-time ceiling derived from a minimum-fps floor, instead of the prototype's
+   bind-time-only, uncapped "max everything" approach that could tank the live feed to a
+   freeze-frame rate on some sensors.
+4. **The expensive enhancement pass only runs at MediaPipe's own inference rate**, not full
+   camera rate — placed after `FrameThrottler`'s gate specifically so it doesn't reintroduce the
+   unthrottled-Core-layer cost §4.7 already fixed once for SLAM/DA2.
+
+**Deliberately not done, and why** (see ENGINE_ARCHITECTURE.md §17.3 for the full reasoning): the
+depth channel (SfM/Photometric via `depthShim`) doesn't receive the enhanced bitmap — it needs a
+consistent every-frame cadence its own feature-tracking assumes, which the inference-rate gate
+would break; extending it needs its own budget-gated cadence, not reuse of the detection path's.
+SL depth stays on the raw bitmap (phase decoding needs precise raw intensities). Multi-frame
+stacking — the prototype's single biggest low-light win — is not ported to the live path at all:
+it trades added integration-time latency for signal, directly working against the Phase 11 latency
+fixes. Not verified on-device — exposure bounds, hysteresis thresholds, and actual effect on
+MediaPipe confidence are reasoned from queried sensor capabilities and the prototype's own values,
+not measured.
 
 ## Recommended order
 
-Phase 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11. Phases 0-4 are all independent of each
-other technically and could be reordered or parallelized; the sequence above is by impact (fix
-what's visibly broken first), not by dependency. Phases 9, 10, and 11 were all reactive (direct
-user requests) rather than part of the original sequence. Remaining open items: the narrow,
-explicitly-scoped-out non-goals noted inline throughout (§8.2's inherent BVH-format limitation,
-§9's larger recomposition restructuring, a few named exclusions inside Phase 8, §17.2's body
-motion-prediction gap) and §17.3's low-light pipeline in full — none of them a deferred "big fix"
-left implicit, all of them a documented line drawn on purpose, with §17.3 the one still awaiting
-its own implementation pass.
+Phase 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12. Phases 0-4 are all independent of
+each other technically and could be reordered or parallelized; the sequence above is by impact
+(fix what's visibly broken first), not by dependency. Phases 9 through 12 were all reactive
+(direct user requests) rather than part of the original sequence. Remaining open items: the
+narrow, explicitly-scoped-out non-goals noted inline throughout (§8.2's inherent BVH-format
+limitation, §9's larger recomposition restructuring, a few named exclusions inside Phase 8, §17.2's
+body motion-prediction gap, §17.3's depth-channel extension and multi-frame stacking) — none of
+them a deferred "big fix" left implicit, all of them a documented line drawn on purpose.

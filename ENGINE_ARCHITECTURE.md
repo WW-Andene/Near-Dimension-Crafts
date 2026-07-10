@@ -1019,7 +1019,7 @@ actual finger positions from hand structure) — that would need a genuinely dif
 learned prior over hand/body pose space); these are honest fixes to what's already attempted, not
 a promise of occlusion-invariant tracking.
 
-### 17.3 CLAHE contrast enhancement is computed every scan frame but never applied to the image anyone (or MediaPipe) sees — the single biggest lever for low-light detection
+### 17.3 CLAHE contrast enhancement is computed every scan frame but never applied to the image anyone (or MediaPipe) sees — the single biggest lever for low-light detection — DONE (a-c for detection; d and the depth-channel extension deliberately not done)
 
 `CLAHEAnalyzer.process()`'s own doc comment states it plainly: *"Returns a contrast score [0,1];
 the enhanced bitmap is never materialised."* Confirmed by every call site (repo-wide grep): its
@@ -1054,28 +1054,36 @@ anywhere in this app:
    every call, then throws the result away (see above). Gamma lift and unsharp mask have no
    equivalent at all in this codebase.
 
-**Fix options** (this is real new engineering, not a bug fix — scoping only, not implemented
-here): (a) Materialise `CLAHEAnalyzer`'s enhanced bitmap and feed it to the MediaPipe detectors
-instead of (or blended with) the raw frame, gated to only activate when the frame is actually
-dark (e.g., mean luminance below a threshold, matching DarkVision's own `DARK_THRESHOLD`
-gating) — applying CLAHE unconditionally in normal lighting risks changing tracking behavior/
-accuracy in every condition, not just dark ones, which is a regression risk this environment can't
-verify without a device. (b) Add a manual-exposure path via the existing `Camera2Interop` hook,
-also dark-gated (auto-exposure is better in normal light; manual max-exposure is what helps in
-near-dark), mirroring `applyHighestFpsRange`'s existing pattern of querying the camera's own
-advertised capabilities rather than hardcoding values a given device might reject. (c)
-Gamma lift and unsharp mask are comparatively cheap, well-isolated additions once (a) exists —
-same tile-based/per-pixel LUT shape `CLAHEAnalyzer` already uses. (d) Multi-frame stacking for the
-tracking-facing image is the largest and riskiest of the four (motion alignment adds real
-complexity and a frame-rate/latency cost that directly fights §17.1's concern) — recommend
-sequencing it last, after (a)/(b) are shipped and their effect is known.
+**Fix applied**: new `camera.LowLightEnhancer` (hot-pixel suppression + multi-scale CLAHE +
+gamma lift + unsharp mask, luma-only with chroma preserved so output stays a colour image, not
+`DarkVision.jsx`'s grayscale-only result) and `CameraController.setLowLightExposure()` (manual
+exposure/ISO via `Camera2CameraControl`'s dynamic capture-request options, toggled live without
+rebinding the camera — unlike the prototype's bind-time-only `applyHardwareExposure`). Both are
+dark-gated with hysteresis (`SpatialFrameProducer` samples mean luminance every frame — cheap,
+always runs — and only engages enhancement/manual-exposure while actually dark), so normal
+lighting sees zero behavior change. `enhance()` itself only runs on frames that reach past
+`FrameThrottler`'s gate (MediaPipe's own inference rate), not on every raw camera frame — doing
+the full-cost multi-pass pipeline unconditionally at full camera rate would have reintroduced
+exactly the unthrottled-Core-layer mistake §4.7 already fixed once for SLAM/DA2. Applied to the
+bitmap fed to `trackerMgr`/`bodyPipeline`/`facePipeline` (the "detection" half of the complaint).
 
-**Not attempted in this pass**: implementing (a)-(d) blind, without a device to verify the
-dark-gating threshold, the enhancement's actual effect on MediaPipe's confidence/accuracy, or its
-performance cost, carries real regression risk across every lighting condition the app is used in
-— not just the dark case it's meant to fix. Recommend this as its own scoped implementation pass,
-sequenced (a) → (b) → (c) → (d), each independently verifiable and revertable, not one large
-change.
+**Deliberately not done**: (1) the depth channel (`depthShim` → SfM/Photometric) does *not*
+receive the enhanced bitmap — it needs a consistent every-frame cadence for its own feature-
+tracking continuity assumptions, which tying it to the inference-rate-gated enhancement above
+would break, and extending it safely would need its own budget-gated cadence (like
+`DepthChannelBudget` already gives SLAM/DA2) rather than reusing the detection path's gate. SL
+depth is also explicitly left on the raw bitmap — its phase decoding depends on precise raw
+intensity ratios from its projected pattern, which a contrast/gamma transform could distort in a
+way plain detection wouldn't notice. (2) Multi-frame stacking (the prototype's single biggest
+low-light win) is not ported to the live path at all — it trades added integration-time latency
+for signal, directly working against the §17.1 fixes that just removed this class of lag from the
+same pipeline. If a genuinely darker capability is wanted, it belongs in a separate still-capture
+mode that can afford the latency, not the live per-frame detection feed. Both left as documented
+follow-ups, not silently dropped.
+
+Not verified on-device (no device access in this environment) — the exposure-time/ISO bounds, the
+dark-mode hysteresis thresholds, and the enhancement's actual effect on MediaPipe's confidence are
+all reasoned from queried sensor capabilities and the prototype's own values, not measured.
 
 ## 18. Explicitly out of scope
 

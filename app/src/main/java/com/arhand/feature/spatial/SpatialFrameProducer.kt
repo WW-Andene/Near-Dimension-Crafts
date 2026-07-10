@@ -4,6 +4,7 @@ import android.app.Application
 import android.graphics.Bitmap
 import com.arhand.camera.BitmapGrayscaleShim
 import com.arhand.camera.CameraFrameProvider
+import com.arhand.camera.LowLightEnhancer
 import com.arhand.depth.CrossChannelArbiter
 import com.arhand.depth.DepthAnythingSource
 import com.arhand.depth.DepthCarver
@@ -146,6 +147,15 @@ class SpatialFrameProducer(
     private var trackerMgr:   HandTrackerManager? = null
     private var frameJob:     Job? = null
 
+    // ENGINE_ARCHITECTURE.md §17.3 — low-light enhancement for the detection/depth-facing
+    // bitmap. See processBitmap() for the dark-gating and which consumers receive the
+    // enhanced copy vs. the original.
+    private val lowLightEnhancer = LowLightEnhancer()
+    private val _isDarkMode = MutableStateFlow(false)
+    /** True while [lowLightEnhancer] is actively enhancing frames — AppViewModel observes
+     *  this to drive [com.arhand.camera.CameraController.setLowLightExposure] in lockstep. */
+    val isDarkMode: StateFlow<Boolean> = _isDarkMode
+
     // Last SlamLite flow reading, held here so a throttled ("da2" ran, "slam" didn't)
     // frame still has a value to pass into processAuxSources — see DEPTH_CHANNEL_IDS.
     private var lastFlowSnapshot = DepthAnythingSource.FlowSnapshot.ZERO
@@ -238,10 +248,24 @@ class SpatialFrameProducer(
     private fun processBitmap(bitmap: Bitmap) {
         latestBitmap = bitmap
 
+        // ENGINE_ARCHITECTURE.md §17.3 — dark-mode detection is cheap (an 80x60 downsample +
+        // sum) and safe to run unconditionally every camera frame, same as the other always-on
+        // Core-layer signals above. The actual enhancement ([LowLightEnhancer.enhance], a
+        // multi-pass full-resolution pipeline) is NOT run here, deliberately: doing full-cost
+        // image processing on every raw camera frame regardless of FrameThrottler's decision is
+        // exactly the unthrottled-Core-layer mistake §4.7 already fixed once for SLAM/DA2 — see
+        // below, past the throttle gate, for where the enhanced bitmap is actually computed and
+        // used, at the same rate as MediaPipe inference itself rather than full camera rate.
+        val dark = lowLightEnhancer.updateDarkState(lowLightEnhancer.meanLuminance(bitmap))
+        if (dark != _isDarkMode.value) _isDarkMode.value = dark
+
         // Always feed spatial layer (ARCore / SfM / Photometric — always-on)
         depthShim.onBitmap(bitmap, System.currentTimeMillis())
 
-        // SL depth — rear camera only, when enabled
+        // SL depth — rear camera only, when enabled. Left on the *original* bitmap: SL's phase
+        // decoding depends on precise raw intensity ratios from its projected pattern, which a
+        // contrast/gamma transform could distort in a way plain hand/body detection wouldn't
+        // notice but phase math would.
         val slResult = if (slEnabled && !isFrontCamera) {
             slSource.processBitmap(bitmap)
             slSource.getLastResult()
@@ -298,8 +322,14 @@ class SpatialFrameProducer(
         // + 64-tile histogram + bilinear pass) while a scan is actually active.
         if (scanActive) clahe.process(bitmap)
 
+        // ENGINE_ARCHITECTURE.md §17.3 — the actual (expensive) enhancement pass only runs on
+        // frames that reach here, i.e. at MediaPipe's own inference rate, not full camera rate —
+        // see the note above the throttle gate for why. detectionBitmap is just `bitmap` itself
+        // (no copy, no cost) whenever dark-mode isn't active.
+        val detectionBitmap = if (dark) lowLightEnhancer.enhance(bitmap) else bitmap
+
         // Hand inference
-        trackerMgr?.detect(bitmap, ts)
+        trackerMgr?.detect(detectionBitmap, ts)
 
         // Body / face under budget
         val bodyActive = bodyEnabled
@@ -307,11 +337,11 @@ class SpatialFrameProducer(
         val dec        = modelBudget.tick(bodyActive, faceActive)
 
         if (dec.submitBody && bodyActive) {
-            val scaled = scaledIfNeeded(bitmap, dec.bodyThrottled)
+            val scaled = scaledIfNeeded(detectionBitmap, dec.bodyThrottled)
             bodyPipeline.detect(scaled, ts)
         }
         if (dec.submitFace && faceActive) {
-            val scaled = scaledIfNeeded(bitmap, dec.faceThrottled)
+            val scaled = scaledIfNeeded(detectionBitmap, dec.faceThrottled)
             facePipeline.detect(scaled, ts)
         }
         val inferMs = (System.currentTimeMillis() - inferStart).toFloat()

@@ -6,7 +6,9 @@ import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
 import android.util.Range
 import android.util.Size
+import androidx.camera.camera2.interop.Camera2CameraControl
 import androidx.camera.camera2.interop.Camera2Interop
+import androidx.camera.camera2.interop.CaptureRequestOptions
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
@@ -35,6 +37,9 @@ class CameraController(
     companion object {
         const val TARGET_WIDTH  = 640
         const val TARGET_HEIGHT = 480
+
+        /** Floor on live frame rate while [setLowLightExposure] is active — see its own doc. */
+        const val MIN_LOW_LIGHT_FPS = 12L
     }
 
     private var cameraProvider: ProcessCameraProvider? = null
@@ -95,6 +100,57 @@ class CameraController(
 
     fun setTorch(enabled: Boolean) {
         camera?.cameraControl?.enableTorch(enabled)
+    }
+
+    /**
+     * ENGINE_ARCHITECTURE.md §17.3 — manual exposure/ISO override for low-light detection,
+     * toggled dynamically (not baked into the bind-time [Camera2Interop.Extender] the way
+     * [applyHighestFpsRange] is) via [Camera2CameraControl.setCaptureRequestOptions], so it can
+     * be switched on/off live as [LowLightEnhancer]'s dark-mode hysteresis changes state without
+     * rebinding the camera session.
+     *
+     * Unlike the ported prototype (`DarkVision.jsx`'s `applyHardwareExposure`, which pins
+     * exposure/ISO to the sensor's absolute maximum), the exposure-time ceiling here is capped to
+     * maintain at least [MIN_LOW_LIGHT_FPS] — the sensor's own maximum can be well over a second
+     * on some devices, which would make the preview/tracking feed effectively freeze-frame rather
+     * than merely dim-but-live. ISO still goes to the sensor's own advertised ceiling — that
+     * tradeoff (visible noise) is the one actually worth making in near-dark; frame rate isn't.
+     */
+    @OptIn(ExperimentalCamera2Interop::class)
+    fun setLowLightExposure(enabled: Boolean) {
+        val cam = camera ?: return
+        try {
+            val control = Camera2CameraControl.from(cam.cameraControl)
+            if (!enabled) {
+                control.clearCaptureRequestOptions()
+                return
+            }
+
+            val manager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+            val wantFacing = if (currentFacing == CameraSelector.LENS_FACING_BACK)
+                CameraCharacteristics.LENS_FACING_BACK else CameraCharacteristics.LENS_FACING_FRONT
+            val chars = manager.cameraIdList
+                .asSequence()
+                .map { manager.getCameraCharacteristics(it) }
+                .firstOrNull { it.get(CameraCharacteristics.LENS_FACING) == wantFacing }
+                ?: return
+
+            val expRange = chars.get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE) ?: return
+            val isoRange = chars.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE) ?: return
+
+            val maxExposureNs = minOf(expRange.upper, 1_000_000_000L / MIN_LOW_LIGHT_FPS)
+                .coerceAtLeast(expRange.lower)
+
+            val options = CaptureRequestOptions.Builder()
+                .setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
+                .setCaptureRequestOption(CaptureRequest.SENSOR_EXPOSURE_TIME, maxExposureNs)
+                .setCaptureRequestOption(CaptureRequest.SENSOR_SENSITIVITY, isoRange.upper)
+                .build()
+            control.setCaptureRequestOptions(options)
+        } catch (_: Throwable) {
+            // Best-effort, same device-variance guard shape as applyHighestFpsRange — leave
+            // whatever exposure mode was already active in place on any failure.
+        }
     }
 
     fun stop() {

@@ -638,6 +638,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
 
+        // ENGINE_ARCHITECTURE.md §17.3 — drive manual low-light exposure in lockstep with
+        // SpatialFrameProducer's dark-mode hysteresis. Lives here (not in the producer itself)
+        // because CameraController is an AppViewModel-owned resource the producer only
+        // constructs, never holds a reference to afterward.
+        viewModelScope.launch {
+            producer.isDarkMode.collect { dark ->
+                if (::cameraController.isInitialized) cameraController.setLowLightExposure(dark)
+            }
+        }
+
         val facing = if (uiState.value.isFrontCamera) CameraSelector.LENS_FACING_FRONT
                      else CameraSelector.LENS_FACING_BACK
         cc.start(owner, facing)
