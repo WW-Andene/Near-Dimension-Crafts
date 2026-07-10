@@ -231,7 +231,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      * Flat float array: JOINT_COUNT × 3 floats (world-space xyz per joint).
      * Null until the first scan completes.
      */
-    private var restJointPositions: FloatArray? = null
+    // @Volatile: written from a Dispatchers.Default scan-processing coroutine
+    // (processScan/processFreeformScan), read from the main-thread-bound export/HUD
+    // call sites — visibility across threads, not ordering, was the actual gap
+    // (ENGINE_ARCHITECTURE.md §4.6; the two writers are mutually exclusive by workflow).
+    @Volatile private var restJointPositions: FloatArray? = null
 
     // ── Mocap state ────────────────────────────────────────────────────────
     /** Currently loaded asset. Starts as the default puppet (no mesh, symmetric bind pose). */
@@ -1282,8 +1286,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         val outputDir = getApplication<android.app.Application>()
             .getExternalFilesDir("mocap") ?: return
+        // Snapshot on the main thread before launching onto Dispatchers.IO — loadedAsset is a
+        // plain (non-volatile) var written by a main-thread collector, so reading it directly
+        // from the IO-dispatcher coroutine below was a cross-thread visibility gap
+        // (ENGINE_ARCHITECTURE.md §5.6). Passing a snapshot removes the cross-thread read
+        // entirely rather than just guaranteeing visibility.
+        val assetSnapshot = loadedAsset
         viewModelScope.launch(Dispatchers.IO) {
-            recordingManager.exportAndAppend(outputDir, scannedOffsets, loadedAsset)
+            recordingManager.exportAndAppend(outputDir, scannedOffsets, assetSnapshot)
         }
     }
 
