@@ -1,6 +1,8 @@
 package com.arhand.depth
 
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.RectF
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -95,6 +97,14 @@ class SlamLite {
      */
     private var downsampleFactor = 1f
 
+    // ENGINE_ARCHITECTURE.md §17.6 — persistent Bitmap+Canvas instead of
+    // Bitmap.createScaledBitmap every call. Safe to reuse a single buffer (unlike
+    // LowLightEnhancer.enhance()'s output) because [proc] is entirely consumed synchronously
+    // within this method — detectHarris/estimateDelta finish before process() returns, there's
+    // no async handoff to a consumer that might still be reading a previous frame's bitmap.
+    private var procBmp:    Bitmap? = null
+    private var procCanvas: Canvas? = null
+
     /**
      * Process [bitmap] and update [pose] and [delta].
      * Call once per camera frame from a background thread.
@@ -105,7 +115,14 @@ class SlamLite {
         val proc = if (downsampleFactor > 1f) {
             val pw = PROC_MAX_WIDTH
             val ph = (bitmap.height / downsampleFactor).toInt().coerceAtLeast(1)
-            Bitmap.createScaledBitmap(bitmap, pw, ph, true)
+            var target = procBmp
+            if (target == null || target.width != pw || target.height != ph) {
+                target = Bitmap.createBitmap(pw, ph, Bitmap.Config.ARGB_8888)
+                procBmp = target
+                procCanvas = Canvas(target)
+            }
+            procCanvas!!.drawBitmap(bitmap, null, RectF(0f, 0f, pw.toFloat(), ph.toFloat()), null)
+            target
         } else bitmap
 
         val w = proc.width; val h = proc.height

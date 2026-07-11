@@ -1,6 +1,8 @@
 package com.arhand.camera
 
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.RectF
 import kotlin.math.min
 import kotlin.math.pow
 
@@ -104,6 +106,20 @@ class LowLightEnhancer {
     private var cbPlane = IntArray(0)
     private var crPlane = IntArray(0)
     private val samplePixels = IntArray(SAMPLE_W * SAMPLE_H)
+    // ENGINE_ARCHITECTURE.md §17.6 — persistent Bitmap+Canvas instead of
+    // Bitmap.createScaledBitmap every call. meanLuminance() runs unconditionally on every
+    // camera frame regardless of throttling (it's what decides whether anything else in this
+    // class should run at all), so this was the single most frequent Bitmap allocation this
+    // class made. Same fix shape as StereoDepthSource.extractBitmapLuma elsewhere in this repo.
+    private var sampleBmp:    Bitmap? = null
+    private var sampleCanvas: Canvas? = null
+    private val sampleDstRect = RectF(0f, 0f, SAMPLE_W.toFloat(), SAMPLE_H.toFloat())
+
+    // Double-buffered enhance() output — see that method for why a single reused bitmap
+    // isn't safe here.
+    private var outBmpA: Bitmap? = null
+    private var outBmpB: Bitmap? = null
+    private var outToggle = false
 
     // Running per-pixel luma average for accumulateTemporal() — sized/reset in ensureSized().
     private var accumY = FloatArray(0)
@@ -114,9 +130,14 @@ class LowLightEnhancer {
      * this is what decides whether dark-mode (and therefore [enhance]) should engage at all.
      */
     fun meanLuminance(bitmap: Bitmap): Float {
-        val scaled = Bitmap.createScaledBitmap(bitmap, SAMPLE_W, SAMPLE_H, false)
+        var scaled = sampleBmp
+        if (scaled == null) {
+            scaled = Bitmap.createBitmap(SAMPLE_W, SAMPLE_H, Bitmap.Config.ARGB_8888)
+            sampleBmp = scaled
+            sampleCanvas = Canvas(scaled)
+        }
+        sampleCanvas!!.drawBitmap(bitmap, null, sampleDstRect, null)
         scaled.getPixels(samplePixels, 0, SAMPLE_W, 0, 0, SAMPLE_W, SAMPLE_H)
-        scaled.recycle()
         var sum = 0L
         for (p in samplePixels) {
             val r = (p shr 16) and 0xFF; val g = (p shr 8) and 0xFF; val b = p and 0xFF
@@ -182,7 +203,20 @@ class LowLightEnhancer {
             pixels[i] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
         }
 
-        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        // ENGINE_ARCHITECTURE.md §17.6 — double-buffered output instead of a fresh
+        // Bitmap.createBitmap every call. A single reused bitmap would be unsafe here (unlike
+        // meanLuminance()'s scratch bitmap, which is fully consumed synchronously before
+        // returning): this method's result is handed to MediaPipe's detectAsync, which may
+        // still be reading the previous frame's bitmap when the next one is produced.
+        // Alternating between two persistent bitmaps (same double-buffer shape
+        // DepthAnythingSource already uses for denseDepth publication) means a caller never
+        // gets a bitmap that's about to be overwritten out from under it.
+        outToggle = !outToggle
+        var out = if (outToggle) outBmpA else outBmpB
+        if (out == null || out.width != w || out.height != h) {
+            out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            if (outToggle) outBmpA = out else outBmpB = out
+        }
         out.setPixels(pixels, 0, w, 0, 0, w, h)
         return out
     }

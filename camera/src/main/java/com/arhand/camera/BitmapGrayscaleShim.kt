@@ -1,7 +1,8 @@
 package com.arhand.camera
 
 import android.graphics.Bitmap
-import android.graphics.Matrix
+import android.graphics.Canvas
+import android.graphics.RectF
 
 /**
  * Feeds Handy's existing [CameraFrameProvider] Bitmap stream into [SfMDepthSource] and
@@ -51,12 +52,17 @@ class BitmapGrayscaleShim {
     private val listeners = ArrayList<GrayscaleCamera.FrameListener>(2)
     private var grayBuf = FloatArray(OUT_W * OUT_H)
 
-    // Scale matrix — computed once, reused every frame
-    private var scaleMatrix: Matrix? = null
-    private var lastSrcW = 0
-    private var lastSrcH = 0
+    // ENGINE_ARCHITECTURE.md §17.6 — this used to call Bitmap.createBitmap(...) with a Matrix
+    // every single call, i.e. on every raw camera frame with no throttle at all (this method
+    // has no rate limit — it's the "always-on" SfM/Photometric feed). Same fix shape
+    // StereoDepthSource.extractBitmapLuma already uses elsewhere in this codebase: a
+    // persistent Bitmap+Canvas, recreated only on resolution change, redrawn every call
+    // instead of reallocated.
+    private var scaledBmp:    Bitmap? = null
+    private var scaledCanvas: Canvas? = null
     // Pre-allocated pixel scratch — avoids per-frame IntArray allocation
     private val pixelBuf = IntArray(OUT_W * OUT_H)
+    private val dstRect = RectF(0f, 0f, OUT_W.toFloat(), OUT_H.toFloat())
 
     fun addListener(l: GrayscaleCamera.FrameListener) {
         if (!listeners.contains(l)) listeners.add(l)
@@ -80,13 +86,14 @@ class BitmapGrayscaleShim {
         val scaled: Bitmap = if (bitmap.width == OUT_W && bitmap.height == OUT_H) {
             bitmap
         } else {
-            if (scaleMatrix == null || bitmap.width != lastSrcW || bitmap.height != lastSrcH) {
-                scaleMatrix = Matrix().apply {
-                    setScale(OUT_W.toFloat() / bitmap.width, OUT_H.toFloat() / bitmap.height)
-                }
-                lastSrcW = bitmap.width; lastSrcH = bitmap.height
+            var target = scaledBmp
+            if (target == null) {
+                target = Bitmap.createBitmap(OUT_W, OUT_H, Bitmap.Config.ARGB_8888)
+                scaledBmp = target
+                scaledCanvas = Canvas(target)
             }
-            Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, scaleMatrix, false)
+            scaledCanvas!!.drawBitmap(bitmap, null, dstRect, null)
+            target
         }
 
         // Single bulk read into pre-allocated buffer
@@ -100,8 +107,6 @@ class BitmapGrayscaleShim {
             val b =  px         and 0xFF
             gray[i] = (0.299f * r + 0.587f * g + 0.114f * b) / 255f
         }
-
-        if (scaled !== bitmap) scaled.recycle()
 
         for (i in listeners.indices) listeners[i].onFrame(gray, OUT_W, OUT_H, timestampMs)
     }

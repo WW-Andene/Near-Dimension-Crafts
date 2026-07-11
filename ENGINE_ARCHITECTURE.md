@@ -1183,6 +1183,51 @@ is a direct consequence of the algorithm's own complexity (linear-to-quadratic i
 for the passes touched), not a guess, but actual perceived-lag improvement can't be measured
 without a device.
 
+### 17.6 Three hot-path Bitmap reallocations found by generalising §17.5's fix — DONE
+
+Directly requested: continued lag complaints reframed against a concrete data point — the
+reporting device (Xiaomi 13T) runs demanding 3D games at 60fps, so the bottleneck is very
+unlikely to be raw hardware capability; it's specific inefficiency in this app. Generalised
+§17.5's finding (SlamLite was allocating a new Bitmap every call instead of reusing one) by
+grep-checking every `Bitmap.createScaledBitmap`/`Bitmap.createBitmap` call site in the app for
+the same pattern. `StereoDepthSource.extractBitmapLuma` already established the correct fix
+shape elsewhere in this exact codebase (a persistent Bitmap+Canvas, recreated only on resolution
+change, redrawn every call instead of reallocated) — it just hadn't been applied everywhere it
+needed to be.
+
+Found and fixed three real per-frame Bitmap allocations, ranked by how often they actually fire:
+
+1. **`BitmapGrayscaleShim.onBitmap()`** — the worst of the three: this method has *no rate limit
+   at all* (it's the always-on SfM/Photometric feed), so it was allocating a new Bitmap on
+   literally every raw camera frame, unconditionally. Now reuses a single persistent 320×240
+   Bitmap+Canvas.
+2. **`LowLightEnhancer.meanLuminance()`** — also runs unconditionally on every camera frame
+   (it's what decides whether dark-mode/`enhance()` should engage at all), so it was the
+   second-most-frequent allocator. Now reuses a single persistent 80×60 sample Bitmap+Canvas —
+   safe because the bitmap is fully consumed synchronously before the method returns.
+3. **`SlamLite.process()`**'s downsample (§17.5, added this same session) — fixed at the same
+   time it was introduced, using the identical reuse pattern.
+
+**One case deliberately kept allocating, with a double-buffer instead of full elimination**:
+`LowLightEnhancer.enhance()`'s output Bitmap is handed to MediaPipe's `detectAsync`, which may
+still be reading the previous frame's bitmap when the next one is produced — a single reused
+buffer risks the next frame's pixel writes racing a still-in-flight async read. Alternates
+between two persistent bitmaps instead (same double-buffer shape `DepthAnythingSource` already
+uses for `denseDepth` publication) — no caller ever receives a bitmap that's about to be
+overwritten, while still avoiding a fresh allocation on every dark-mode inference frame.
+
+**Also checked and left alone**: `CameraFrameProvider` already uses a proper multi-bitmap pool
+for both YUV→RGBA conversion and rotation — no fix needed, already the same pattern being
+applied elsewhere here. `CLAHEAnalyzer`/`DepthAnythingSource`/`GLBExporter`/`TextureBaker`'s
+Bitmap allocations are all either already gated to rare/one-shot operations (scan-only, export)
+or already pooled — not hot-path, not touched.
+
+Not verified on-device (no device access in this environment) — Bitmap allocation is a
+well-documented source of GC pressure and stutter on Android generally, and these specific call
+sites are demonstrably the most frequent in the app (two of the three ran on literally every
+camera frame with no throttle), but the actual perceived-smoothness improvement can't be
+measured without a device.
+
 ## 18. Explicitly out of scope
 
 - Device-specific tuning (NNAPI/GPU-delegate speculation, resolution/quality downgrades) — the

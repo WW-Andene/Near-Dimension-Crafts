@@ -598,13 +598,31 @@ all internal processing, roughly a 4× reduction in its per-call cost, with the 
 calibration constant scaled to compensate so `pose`/`delta`'s numeric output is unaffected. See
 ENGINE_ARCHITECTURE.md §17.5 for the full derivation.
 
+## Phase 16 — §17.6: eliminate hot-path Bitmap reallocation — DONE
+
+Directly requested: continued lag reports, reframed with a concrete data point (the reporting
+device runs demanding 3D games at 60fps, ruling out raw hardware capability as the bottleneck).
+Generalised Phase 15's finding — grep-checked every `Bitmap.createScaledBitmap`/
+`Bitmap.createBitmap` call site for the same "reallocates every call instead of reusing" pattern
+`StereoDepthSource.extractBitmapLuma` already avoids elsewhere in this codebase. Found and fixed
+three real per-frame allocators: `BitmapGrayscaleShim.onBitmap()` (worst — no rate limit at all,
+fires on every raw camera frame), `LowLightEnhancer.meanLuminance()` (also unconditional, every
+camera frame), and `SlamLite.process()`'s new downsample from Phase 15 (fixed at introduction).
+All three now reuse a single persistent Bitmap+Canvas. `LowLightEnhancer.enhance()`'s output
+bitmap — handed to MediaPipe's async detector, so a single reused buffer risked a race with a
+still-in-flight read — uses a double-buffer instead (same shape `DepthAnythingSource` already
+uses for `denseDepth`), avoiding the allocation without the race risk. `CameraFrameProvider` was
+checked and already does this correctly (a proper multi-bitmap pool) — no fix needed there. See
+ENGINE_ARCHITECTURE.md §17.6 for the full list and reasoning per site.
+
 ## Recommended order
 
-Phase 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13 → 14 → 15. Phases 0-4 are all
-independent of each other technically and could be reordered or parallelized; the sequence above
-is by impact (fix what's visibly broken first), not by dependency. Phases 9 through 15 were all
-reactive (direct user requests) rather than part of the original sequence. Remaining open items:
-the narrow, explicitly-scoped-out non-goals noted inline throughout (§8.2's inherent BVH-format
-limitation, §9's larger recomposition restructuring, a few named exclusions inside Phase 8, §17.2's
-body motion-prediction gap, §17.3's depth-channel extension and multi-frame stacking) — none of
-them a deferred "big fix" left implicit, all of them a documented line drawn on purpose.
+Phase 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13 → 14 → 15 → 16. Phases 0-4 are
+all independent of each other technically and could be reordered or parallelized; the sequence
+above is by impact (fix what's visibly broken first), not by dependency. Phases 9 through 16
+were all reactive (direct user requests) rather than part of the original sequence. Remaining
+open items: the narrow, explicitly-scoped-out non-goals noted inline throughout (§8.2's inherent
+BVH-format limitation, §9's larger recomposition restructuring, a few named exclusions inside
+Phase 8, §17.2's body motion-prediction gap, §17.3's depth-channel extension and multi-frame
+stacking) — none of them a deferred "big fix" left implicit, all of them a documented line drawn
+on purpose.
