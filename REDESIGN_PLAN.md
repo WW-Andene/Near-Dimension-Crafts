@@ -615,14 +615,32 @@ uses for `denseDepth`), avoiding the allocation without the race risk. `CameraFr
 checked and already does this correctly (a proper multi-bitmap pool) — no fix needed there. See
 ENGINE_ARCHITECTURE.md §17.6 for the full list and reasoning per site.
 
+## Phase 17 — §17.7: make SlamLite dispatch async, matching DA2 — DONE
+
+Directly requested ("do whatever you want and ship it") after re-auditing whether Phase 14's
+`DepthChannelBudget` fix had actually decoupled both of its channels from the frame-critical
+coroutine the way it looked like it had. It had only decoupled one: `DepthAnythingSource` already
+dispatched to `Dispatchers.Default` and returned immediately (`processAsync`), but
+`SpatialLayer.processBitmap` called `slam.process(bitmap)` directly and synchronously — real,
+multi-millisecond Harris-corner + pyramidal-LK cost, blocking the same sequential per-frame
+coroutine that submits MediaPipe tracking a few lines later. Gave `SlamLite` a `processAsync`
+structurally identical to `DepthAnythingSource`'s (busy-flag guard, defensive bitmap copy,
+`Dispatchers.Default`, drop-if-still-running); `SpatialLayer.processBitmap` (synchronous, returned
+a same-frame flow snapshot) is replaced by `processBitmapAsync` (fire-and-forget) plus
+`currentFlowSnapshot()`, read at DA2's dispatch point. Phase 6's SlamLite→DA2 flow-correlation fix
+(bundling the flow value into DA2's call *by value at enqueue time*) is unchanged and still
+applies — only where that value is read from changed, not the by-value-capture contract Phase 6
+established. See ENGINE_ARCHITECTURE.md §17.7 for the full reasoning, including why this doesn't
+reopen Phase 6.
+
 ## Recommended order
 
-Phase 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13 → 14 → 15 → 16. Phases 0-4 are
-all independent of each other technically and could be reordered or parallelized; the sequence
-above is by impact (fix what's visibly broken first), not by dependency. Phases 9 through 16
-were all reactive (direct user requests) rather than part of the original sequence. Remaining
-open items: the narrow, explicitly-scoped-out non-goals noted inline throughout (§8.2's inherent
-BVH-format limitation, §9's larger recomposition restructuring, a few named exclusions inside
-Phase 8, §17.2's body motion-prediction gap, §17.3's depth-channel extension and multi-frame
-stacking) — none of them a deferred "big fix" left implicit, all of them a documented line drawn
-on purpose.
+Phase 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13 → 14 → 15 → 16 → 17. Phases 0-4
+are all independent of each other technically and could be reordered or parallelized; the
+sequence above is by impact (fix what's visibly broken first), not by dependency. Phases 9
+through 17 were all reactive (direct user requests) rather than part of the original sequence.
+Remaining open items: the narrow, explicitly-scoped-out non-goals noted inline throughout
+(§8.2's inherent BVH-format limitation, §9's larger recomposition restructuring, a few named
+exclusions inside Phase 8, §17.2's body motion-prediction gap, §17.3's depth-channel extension
+and multi-frame stacking) — none of them a deferred "big fix" left implicit, all of them a
+documented line drawn on purpose.

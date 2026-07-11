@@ -3,6 +3,10 @@ package com.arhand.depth
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.RectF
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -105,9 +109,43 @@ class SlamLite {
     private var procBmp:    Bitmap? = null
     private var procCanvas: Canvas? = null
 
+    // ENGINE_ARCHITECTURE.md §17.7 — [process] mutates prevLuma/prevFeatures/procBmp with no
+    // synchronization, so only one call may run at a time; Dispatchers.Default is a thread
+    // pool, not a single thread, so two concurrent process() calls could corrupt each other's
+    // buffers. Guard with a busy flag and drop the overlapping frame instead of queueing —
+    // identical backpressure contract to DepthAnythingSource.processAsync, which this mirrors.
+    private val processing = AtomicBoolean(false)
+
     /**
-     * Process [bitmap] and update [pose] and [delta].
-     * Call once per camera frame from a background thread.
+     * Run [process] on [Dispatchers.Default] instead of blocking the caller. Unlike the
+     * synchronous [process], this returns immediately — [pose]/[delta]/[meanFlowMag]/
+     * [medianFlowNX]/[medianFlowNY] update once the background call completes, which may be
+     * one or more frames later. Drops the frame instead of overlapping if a previous call is
+     * still running (ENGINE_ARCHITECTURE.md §17.7) — same contract callers already tolerate
+     * whenever [com.arhand.util.DepthChannelBudget] sheds "slam" for a frame, so this doesn't
+     * introduce a new kind of staleness, only makes the existing one possible more often.
+     *
+     * [bitmap] is defensively copied before the background call reads it, since the camera
+     * pipeline's bitmap pool ([com.arhand.camera.CameraFrameProvider]) may reuse/overwrite the
+     * same object a few frames later, while this call may still be in flight.
+     */
+    fun processAsync(bitmap: Bitmap, scope: CoroutineScope) {
+        if (!processing.compareAndSet(false, true)) return   // previous frame still in flight
+        val copy = bitmap.copy(Bitmap.Config.ARGB_8888, false)
+        scope.launch(Dispatchers.Default) {
+            try {
+                process(copy)
+            } finally {
+                processing.set(false)
+            }
+        }
+    }
+
+    /**
+     * Process [bitmap] and update [pose] and [delta]. Synchronous — blocks the calling thread
+     * for the full Harris-detection + optical-flow cost. Prefer [processAsync] on the
+     * camera-frame-critical path; this remains available for tests and any caller that
+     * genuinely needs the result before proceeding.
      */
     fun process(bitmap: Bitmap) {
         downsampleFactor = if (bitmap.width > PROC_MAX_WIDTH)

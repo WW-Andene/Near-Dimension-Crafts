@@ -1231,6 +1231,55 @@ sites are demonstrably the most frequent in the app (two of the three ran on lit
 camera frame with no throttle), but the actual perceived-smoothness improvement can't be
 measured without a device.
 
+### 17.7 `SlamLite` was the one remaining always-on Core channel still blocking the frame-critical coroutine synchronously — DONE
+
+Directly requested ("do whatever you want and ship it") after the user pointed out that a
+lower/"dumber" module (`depth`) depending on a higher-abstraction one (`tracking`) — a real,
+verified, narrowly-scoped exception (§2.1) — made them doubt the architecture generally, and
+connected that doubt to the ongoing perceived-lag complaints. That specific dependency-graph
+exception isn't a runtime cost (it's two scan-only coordinate-math functions, not a hot-path
+call), so it doesn't explain lag — but re-auditing the actual per-frame runtime cost one more
+time, specifically checking whether `DepthChannelBudget`'s §4.7 fix had actually decoupled
+*both* of its channels the way it looks like it did, found one still didn't:
+
+`DepthAnythingSource.processAsync` (`depth/.../DepthAnythingSource.kt:201`) already dispatches
+to `Dispatchers.Default` and returns immediately — its measured `da2Ms` in
+`SpatialFrameProducer.processBitmap` was already only ever the bitmap-copy-and-launch overhead,
+not the actual CNN forward pass. `SpatialLayer.processBitmap` (`depth/.../SpatialLayer.kt:215`,
+pre-fix), by contrast, called `slam.process(bitmap)` **directly and synchronously** — no
+coroutine dispatch at all. `SlamLite.process()` (Harris-corner detection over a strided grid,
+non-maximum suppression, then 3-level pyramidal Lucas-Kanade search across up to 90 features) is
+genuine, multi-millisecond CPU work, and it ran on the exact same sequential per-frame coroutine
+(`frameJob`) that submits MediaPipe hand/body/face tracking a few lines later — so on any frame
+`DepthChannelBudget` allowed SLAM to run, it delayed tracking submission for that entire frame,
+same mechanism §4.7 already diagnosed for the *whole* Core layer, just not fully fixed for this
+one channel.
+
+**Fix**: gave `SlamLite` a `processAsync(bitmap, scope)`, structurally identical to
+`DepthAnythingSource.processAsync` — an `AtomicBoolean` busy-guard, a defensive bitmap copy (the
+camera pipeline's bitmap pool can overwrite the original a few frames later), dispatched to
+`Dispatchers.Default`, dropping the frame instead of queueing if a previous call is still in
+flight. `SpatialLayer.processBitmap` (synchronous, returning a same-frame `FlowSnapshot`) is
+replaced by `processBitmapAsync` (fire-and-forget) plus `currentFlowSnapshot()`, which reads
+SlamLite's latest completed `@Volatile` fields at the point `DepthAnythingSource.processAsync`
+is dispatched.
+
+**Why this doesn't reopen Phase 6's SlamLite→DA2 flow-correlation fix**: that fix (bundling the
+flow reading into DA2's `processAsync` call *by value at enqueue time*, rather than reading a
+shared mutable field DA2 might see updated mid-inference) is unchanged — `currentFlowSnapshot()`
+is still read once and passed by value into the same call. What changed is only *where the value
+being read now comes from* — previously a synchronous `slam.process(bitmap)` result (fresh, but
+only on frames `DepthChannelBudget` didn't shed — already stale on every shed frame, which is
+the exact scenario `lastFlowSnapshot`'s original doc comment described and accepted); now
+SlamLite's latest completed background result, stale under the same conditions plus whenever its
+own `processAsync` is still in flight. No new *kind* of staleness, only a wider window for the
+kind already tolerated by design.
+
+Not verified on-device (no device access in this environment). This was the one channel on the
+list where the fix mechanism (moving genuine per-frame CPU cost off the tracking-critical
+coroutine) has a plausible, non-speculative link to "hand/body tracking doesn't feel smooth" —
+unlike the dependency-graph exception that prompted re-auditing this, which has no such link.
+
 ## 18. Explicitly out of scope
 
 - Device-specific tuning (NNAPI/GPU-delegate speculation, resolution/quality downgrades) — the

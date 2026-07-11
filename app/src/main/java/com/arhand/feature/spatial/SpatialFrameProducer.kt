@@ -6,7 +6,6 @@ import com.arhand.camera.BitmapGrayscaleShim
 import com.arhand.camera.CameraFrameProvider
 import com.arhand.camera.LowLightEnhancer
 import com.arhand.depth.CrossChannelArbiter
-import com.arhand.depth.DepthAnythingSource
 import com.arhand.depth.DepthCarver
 import com.arhand.depth.StructuredLightDepthSource
 import com.arhand.depth.SpatialLayer
@@ -156,10 +155,6 @@ class SpatialFrameProducer(
      *  this to drive [com.arhand.camera.CameraController.setLowLightExposure] in lockstep. */
     val isDarkMode: StateFlow<Boolean> = _isDarkMode
 
-    // Last SlamLite flow reading, held here so a throttled ("da2" ran, "slam" didn't)
-    // frame still has a value to pass into processAuxSources — see DEPTH_CHANNEL_IDS.
-    private var lastFlowSnapshot = DepthAnythingSource.FlowSnapshot.ZERO
-
     /**
      * ARCH-2 — Called with every raw camera bitmap, on the same [frameJob] coroutine that
      * drives [processBitmap]. Lets `AppViewModel` forward frames to the GL background
@@ -277,15 +272,18 @@ class SpatialFrameProducer(
         // FrameThrottler's decision — since this whole function runs on one sequential
         // per-frame coroutine (frameJob), an over-budget Core pass delayed every later
         // stage of the same frame, including hand-tracking submission (ENGINE_ARCHITECTURE.md
-        // §3). Each channel keeps its own last-computed output (SlamLite/DA2 state,
-        // lastFlowSnapshot here) between throttled frames, so skipped frames read as
-        // stale-but-recent rather than absent.
+        // §3). ENGINE_ARCHITECTURE.md §17.7 — SLAM's dispatch here is now itself async
+        // (spatialLayer.processBitmapAsync), same as DA2 already was, so depthBudget's shed/
+        // recover mostly governs *dispatch* rate now rather than working around a synchronous
+        // block; each channel still keeps its own last-computed output (SlamLite/DA2 state)
+        // between throttled/in-flight frames, so skipped frames read as stale-but-recent
+        // rather than absent.
         val depthDec = depthBudget.tick(DEPTH_CHANNEL_IDS)
 
         var slamMs = 0f
         if (depthDec["slam"] == true) {
             val slamStart = System.currentTimeMillis()
-            lastFlowSnapshot = spatialLayer.processBitmap(bitmap)
+            spatialLayer.processBitmapAsync(bitmap, scope)
             slamMs = (System.currentTimeMillis() - slamStart).toFloat()
         }
         depthBudget.report("slam", slamMs)
@@ -293,7 +291,7 @@ class SpatialFrameProducer(
         var da2Ms = 0f
         if (depthDec["da2"] == true) {
             val da2Start = System.currentTimeMillis()
-            spatialLayer.fusedDepth.processAuxSources(bitmap, slResult?.depth, scope, lastFlowSnapshot)
+            spatialLayer.fusedDepth.processAuxSources(bitmap, slResult?.depth, scope, spatialLayer.currentFlowSnapshot())
             da2Ms = (System.currentTimeMillis() - da2Start).toFloat()
         }
         depthBudget.report("da2", da2Ms)

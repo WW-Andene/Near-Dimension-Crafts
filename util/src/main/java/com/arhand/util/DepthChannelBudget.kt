@@ -26,7 +26,7 @@ package com.arhand.util
  * val ids = listOf("da2", "slam")   // da2 first: also feeds hand-landmark Z correction
  *
  * val decision = depthBudget.tick(ids)
- * val slamMs = if (decision["slam"] == true) timed { spatialLayer.processBitmap(bitmap) } else 0f
+ * val slamMs = if (decision["slam"] == true) timed { spatialLayer.processBitmapAsync(bitmap, scope) } else 0f
  * val da2Ms  = if (decision["da2"]  == true) timed { spatialLayer.fusedDepth.processAuxSources(...) } else 0f
  *
  * // Report every id every frame, 0f for skipped channels — same convention as

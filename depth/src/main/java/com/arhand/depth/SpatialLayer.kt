@@ -4,6 +4,7 @@ import android.content.Context
 import com.arhand.camera.BitmapGrayscaleShim
 import com.arhand.depth.fusion.FusedDepthSource
 import com.arhand.util.Vec3
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -204,18 +205,29 @@ class SpatialLayer(private val context: Context) {
     fun resumeArcoreCameraHold() = fusedDepth.resumeArcoreCameraHold()
 
     /**
-     * Process [bitmap] through the always-on v27 sensing pipeline.
-     * Call once per camera frame from [SpatialFrameProducer.processBitmap].
+     * Dispatch [bitmap] to SlamLite asynchronously (ENGINE_ARCHITECTURE.md §17.7) — unlike the
+     * old synchronous `processBitmap`, this does not block the calling coroutine for the full
+     * Harris-detection + optical-flow cost. Call once per camera frame from
+     * [SpatialFrameProducer.processBitmap].
      *
-     * @return This frame's SlamLite optical-flow reading, for the caller to pass into
-     *   [com.arhand.depth.fusion.FusedDepthSource.processAuxSources] alongside the same
-     *   [bitmap] — see [DepthAnythingSource.FlowSnapshot] for why this is a return value
-     *   rather than a field DA2 reads whenever it gets around to running (§5.2).
+     * Callers that need a flow reading for
+     * [com.arhand.depth.fusion.FusedDepthSource.processAuxSources] should read
+     * [currentFlowSnapshot] at DA2's dispatch point rather than expect this call to have
+     * completed by the time it returns — see [SlamLite.processAsync]'s doc for why that's
+     * already this system's tolerance under [com.arhand.util.DepthChannelBudget] throttling,
+     * not a new relaxation introduced here.
      */
-    fun processBitmap(bitmap: android.graphics.Bitmap): DepthAnythingSource.FlowSnapshot {
-        slam.process(bitmap)
-        return DepthAnythingSource.FlowSnapshot(slam.meanFlowMag, slam.medianFlowNX, slam.medianFlowNY)
+    fun processBitmapAsync(bitmap: android.graphics.Bitmap, scope: CoroutineScope) {
+        slam.processAsync(bitmap, scope)
     }
+
+    /**
+     * SlamLite's most recently completed optical-flow reading. May be from an earlier frame
+     * if SlamLite is still processing a newer one, or was shed by [com.arhand.util.DepthChannelBudget]
+     * this frame — same "stale but recent" contract every always-on Core channel's output has.
+     */
+    fun currentFlowSnapshot(): DepthAnythingSource.FlowSnapshot =
+        DepthAnythingSource.FlowSnapshot(slam.meanFlowMag, slam.medianFlowNX, slam.medianFlowNY)
 
     fun stop() {
         if (!started) return
