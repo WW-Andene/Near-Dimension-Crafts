@@ -1147,6 +1147,42 @@ some GL redraws necessarily happen between camera frame arrivals with no new fra
 makes `SKIP` a mix of "throttled by this class" and "camera hasn't delivered a new frame yet," not
 a clean single-cause number — worth knowing when reading the HUD, not a functional bug in itself.
 
+### 17.5 `SlamLite` was the one always-on Core channel still processing at full camera resolution — DONE
+
+Requested directly after persistent lag reports continued despite §17.4's real fix: audited
+`DepthChannelBudget` (the rate-limiter governing SLAM/DA2, the two heaviest continuous
+background costs) for a bug analogous to §17.4's `FrameThrottler` feedback loop — found none;
+its shed/recover logic derives from an independently-tracked EMA, never contaminated by its own
+output the way the old `FrameThrottler` was. Ruled out re-adding an NNAPI/GPU delegate for DA2 —
+already tried this session and reverted after it regressed both performance and accuracy (see
+§18) — and could not safely touch DA2's ONNX input resolution (518×518, the model's native
+size) without the actual `.ort` asset file to verify whether its input shape is fixed or
+dynamic; a wrong guess there risks a hard crash on the single heaviest compute channel, not just
+a missed optimization.
+
+Instead audited every always-on Core channel's processing resolution directly.
+`BitmapGrayscaleShim` (feeding SfM/Photometric) already downsamples to 320×240 before any
+processing. `SlamLite` was the one outlier: `computeLuma`, Harris corner scoring, and
+non-maximum suppression all ran at the full incoming camera resolution (commonly 640×480 —
+`computeLuma` alone touches ~307k pixels) every time the channel fired, for a sparse-feature
+visual-odometry algorithm that only needs a coarse camera-pose estimate, not per-pixel
+precision.
+
+**Fix applied**: `SlamLite.process()` now downsamples to at most 320px wide (matching
+`BitmapGrayscaleShim`'s existing resolution) before all internal Harris/LK processing — roughly
+a 4× reduction in `computeLuma`/Harris-scoring/NMS cost. `SCALE_PX_PER_M` (the pixel-to-metres
+calibration constant) is calibrated to full resolution, so the measured pixel flow is scaled
+back up by the actual downsample factor before that division — `pose`/`delta`'s metric output is
+numerically unaffected, this is a pure cost reduction, not a behavior or accuracy change. The
+existing pyramid-search ranges (tuned for full-resolution fast-motion coverage) end up with
+*more* headroom after downsampling, not less, since the same real-world motion now produces
+smaller pixel displacements — no retuning needed there.
+
+Not verified on-device (no device access in this environment) — the ~4× per-call cost reduction
+is a direct consequence of the algorithm's own complexity (linear-to-quadratic in pixel count
+for the passes touched), not a guess, but actual perceived-lag improvement can't be measured
+without a device.
+
 ## 18. Explicitly out of scope
 
 - Device-specific tuning (NNAPI/GPU-delegate speculation, resolution/quality downgrades) — the

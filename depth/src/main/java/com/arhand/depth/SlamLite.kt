@@ -77,13 +77,40 @@ class SlamLite {
     private var snapToggle:  Boolean  = false
 
     /**
+     * ENGINE_ARCHITECTURE.md §17.5 — [process] used to run Harris corner detection + LK
+     * optical flow at the full incoming camera resolution (commonly 640×480 — `computeLuma`
+     * alone touches ~307k pixels every call). Every other always-on Core channel that shares
+     * this same camera stream already works at a reduced resolution
+     * ([com.arhand.camera.BitmapGrayscaleShim] downsamples to 320×240 for SfM/Photometric) —
+     * SlamLite was the one outlier still paying full-resolution cost for a sparse-feature
+     * visual-odometry algorithm that only needs a coarse pose estimate, not per-pixel
+     * precision. Downsampling here to at most [PROC_MAX_WIDTH] wide cuts `computeLuma`/Harris
+     * scoring/NMS cost roughly 4× (halving each dimension) for no meaningful accuracy loss to
+     * camera-pose tracking specifically.
+     *
+     * [SCALE_PX_PER_M] is calibrated to *full* camera resolution — [downsampleFactor] scales
+     * the measured pixel flow back up to full-resolution-equivalent terms before that division
+     * (see [estimateDelta]'s last line), so [pose]/[delta]'s metric output is numerically
+     * unaffected by this — a pure cost optimization, not a behavior change.
+     */
+    private var downsampleFactor = 1f
+
+    /**
      * Process [bitmap] and update [pose] and [delta].
      * Call once per camera frame from a background thread.
      */
     fun process(bitmap: Bitmap) {
-        val w = bitmap.width; val h = bitmap.height
+        downsampleFactor = if (bitmap.width > PROC_MAX_WIDTH)
+            bitmap.width.toFloat() / PROC_MAX_WIDTH else 1f
+        val proc = if (downsampleFactor > 1f) {
+            val pw = PROC_MAX_WIDTH
+            val ph = (bitmap.height / downsampleFactor).toInt().coerceAtLeast(1)
+            Bitmap.createScaledBitmap(bitmap, pw, ph, true)
+        } else bitmap
+
+        val w = proc.width; val h = proc.height
         val savedPrevLuma = prevLuma
-        val features = detectHarris(bitmap, w, h)
+        val features = detectHarris(proc, w, h)
         prevLuma = lastComputedLuma
         featureCount = features.size
 
@@ -306,7 +333,12 @@ class SlamLite {
         }
         val drz = if (count > 0) atan2(sinSum / count, cosSum / count) else 0f
 
-        return FrameMotion(medX / SCALE_PX_PER_M, -medY / SCALE_PX_PER_M, drz)
+        // SCALE_PX_PER_M is calibrated to full camera resolution — scale the downsampled-frame
+        // pixel flow back up to full-resolution-equivalent terms before this division, so the
+        // metric result is unaffected by process()'s downsample (see its doc comment).
+        val fullResX = medX * downsampleFactor
+        val fullResY = medY * downsampleFactor
+        return FrameMotion(fullResX / SCALE_PX_PER_M, -fullResY / SCALE_PX_PER_M, drz)
     }
 
     // S4.3: 2×2 box-filter Gaussian pyramid. Each level is half the resolution.
@@ -356,6 +388,9 @@ class SlamLite {
         private const val LK_REFINE_RANGE = 4      // S4.3: refinement radius at finer pyramid levels
         private const val PYRAMID_LEVELS  = 3      // S4.3: pyramid depth (0=full, 1=half, 2=quarter res)
         private const val MATCH_THRESH    = 30     // max SAD score to accept a match
-        private const val SCALE_PX_PER_M  = 500f   // nominal mapping scale (px per metre)
+        private const val SCALE_PX_PER_M  = 500f   // nominal mapping scale (px per metre, at full resolution)
+        // ENGINE_ARCHITECTURE.md §17.5 — matches BitmapGrayscaleShim.OUT_W, the resolution the
+        // rest of the always-on Core pipeline (SfM/Photometric) already processes at.
+        private const val PROC_MAX_WIDTH  = 320
     }
 }

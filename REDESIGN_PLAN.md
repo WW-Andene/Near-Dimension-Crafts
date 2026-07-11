@@ -578,11 +578,31 @@ Verified by repo-wide grep before and after (per §3.2's standing rule) that not
 referenced any of this — a clean removal, no half-connected leftovers, no dead code left behind
 for a future pass to rediscover.
 
+## Phase 15 — §17.5: SlamLite full-resolution processing — DONE
+
+Directly requested after persistent lag reports continued past Phase 13's real `FrameThrottler`
+fix ("no matter what you did there's absolutely no improvement... optimize the hell out of it").
+User explicitly chose to keep SLAM/DA2 always-on (rejected gating them behind active depth use,
+to preserve always-on metric OSC precision for streaming) — so the ask was to find real
+optimization within the always-on pipeline, not cut its scope.
+
+Audited `DepthChannelBudget` for a bug analogous to Phase 13's `FrameThrottler` feedback loop —
+none found, its logic is sound. Ruled out re-adding a GPU/NNAPI delegate for DA2 (already tried
+and reverted this session) and couldn't safely touch DA2's ONNX input resolution without the
+actual model asset to verify its input shape is dynamic, not fixed. Instead found a real,
+verifiable, zero-risk win: `SlamLite` was the one always-on Core channel still processing Harris
+corner detection + LK optical flow at full camera resolution (~640×480), while every sibling
+channel sharing the same camera stream (`BitmapGrayscaleShim` for SfM/Photometric) already
+downsamples to 320×240. Brought SlamLite in line — downsamples to the same 320px width before
+all internal processing, roughly a 4× reduction in its per-call cost, with the pixel-to-metres
+calibration constant scaled to compensate so `pose`/`delta`'s numeric output is unaffected. See
+ENGINE_ARCHITECTURE.md §17.5 for the full derivation.
+
 ## Recommended order
 
-Phase 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13 → 14. Phases 0-4 are all
+Phase 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 12 → 13 → 14 → 15. Phases 0-4 are all
 independent of each other technically and could be reordered or parallelized; the sequence above
-is by impact (fix what's visibly broken first), not by dependency. Phases 9 through 14 were all
+is by impact (fix what's visibly broken first), not by dependency. Phases 9 through 15 were all
 reactive (direct user requests) rather than part of the original sequence. Remaining open items:
 the narrow, explicitly-scoped-out non-goals noted inline throughout (§8.2's inherent BVH-format
 limitation, §9's larger recomposition restructuring, a few named exclusions inside Phase 8, §17.2's
