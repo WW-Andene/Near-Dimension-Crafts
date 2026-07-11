@@ -13,6 +13,11 @@ No active illumination is used beyond the device's own torch — see
 engineering notes behind the passive depth pipeline (outdoor light, low-light,
 motion blur, etc.).
 
+For a visual, layer-by-layer tree of every module and component in the engine
+(Core/Translation/Application, with each part's functional role), see
+[`docs/ENGINE_SCHEMATIC.html`](docs/ENGINE_SCHEMATIC.html) — open it directly in
+a browser.
+
 > Gradle project name is `Handy`; the repository is `Near-Dimension-Crafts`.
 
 ## Status

@@ -1,0 +1,530 @@
+<title>Near-Dimension-Crafts — Engine Schematic</title>
+<style>
+  :root {
+    --bg:        #EEEAE0;
+    --panel:     #FFFDF7;
+    --panel-2:   #E4DFD0;
+    --ink:       #1B2A35;
+    --ink-dim:   #4C5E68;
+    --rule:      #C7BFA8;
+    --core:      #1783A6;
+    --core-bg:   #DCF0F5;
+    --trans:     #B9791A;
+    --trans-bg:  #F7E9CF;
+    --app:       #B14D68;
+    --app-bg:    #F6DEE5;
+    --found:     #566B5B;
+    --found-bg:  #E1E8DE;
+    --shadow:    0 1px 0 rgba(27,42,53,0.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:      #0A1420;
+      --panel:   #101F33;
+      --panel-2: #0D1A2B;
+      --ink:     #D7E1E6;
+      --ink-dim: #8CA0AC;
+      --rule:    #24384A;
+      --core:    #6ED4F2;
+      --core-bg: #123241;
+      --trans:   #F0BA6A;
+      --trans-bg:#3A2C15;
+      --app:     #EB93AC;
+      --app-bg:  #3A1F29;
+      --found:   #9FC2A6;
+      --found-bg:#1C2A20;
+      --shadow:  0 1px 0 rgba(0,0,0,0.4);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:      #0A1420;
+    --panel:   #101F33;
+    --panel-2: #0D1A2B;
+    --ink:     #D7E1E6;
+    --ink-dim: #8CA0AC;
+    --rule:    #24384A;
+    --core:    #6ED4F2;
+    --core-bg: #123241;
+    --trans:   #F0BA6A;
+    --trans-bg:#3A2C15;
+    --app:     #EB93AC;
+    --app-bg:  #3A1F29;
+    --found:   #9FC2A6;
+    --found-bg:#1C2A20;
+    --shadow:  0 1px 0 rgba(0,0,0,0.4);
+  }
+  :root[data-theme="light"] {
+    --bg:      #EEEAE0;
+    --panel:   #FFFDF7;
+    --panel-2: #E4DFD0;
+    --ink:     #1B2A35;
+    --ink-dim: #4C5E68;
+    --rule:    #C7BFA8;
+    --core:    #1783A6;
+    --core-bg: #DCF0F5;
+    --trans:   #B9791A;
+    --trans-bg:#F7E9CF;
+    --app:     #B14D68;
+    --app-bg:  #F6DEE5;
+    --found:   #566B5B;
+    --found-bg:#E1E8DE;
+    --shadow:  0 1px 0 rgba(27,42,53,0.06);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Iowan Old Style", "Charter", "Georgia", serif;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono {
+    font-family: "JetBrains Mono", "SF Mono", "Cascadia Code", ui-monospace, "Menlo", monospace;
+  }
+  .head {
+    font-family: "Bahnschrift", "SF Compact Display", "Segoe UI Semibold", system-ui, sans-serif;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    text-wrap: balance;
+  }
+
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 40px 24px 96px; }
+
+  header.title-block {
+    border-bottom: 2px solid var(--ink);
+    padding-bottom: 20px;
+    margin-bottom: 28px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  header.title-block h1 {
+    font-size: clamp(1.7rem, 3.2vw, 2.5rem);
+    margin: 0 0 6px;
+  }
+  header.title-block p {
+    margin: 0;
+    color: var(--ink-dim);
+    max-width: 56ch;
+    font-size: 0.98rem;
+  }
+  .sheet-meta {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 0.72rem;
+    color: var(--ink-dim);
+    text-align: right;
+    line-height: 1.7;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    white-space: nowrap;
+  }
+
+  /* answer callout */
+  .answer {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-left: 4px solid var(--core);
+    border-radius: 3px;
+    padding: 16px 20px;
+    margin-bottom: 36px;
+    box-shadow: var(--shadow);
+  }
+  .answer .tag {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--core);
+    display: block;
+    margin-bottom: 6px;
+  }
+  .answer p { margin: 0.4em 0; font-size: 0.97rem; }
+  .answer p:first-of-type { margin-top: 0; }
+  .answer p:last-of-type { margin-bottom: 0; }
+
+  /* legend / flow ribbon */
+  .flow {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-bottom: 40px;
+  }
+  .flow .stop {
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 10px 12px;
+    background: var(--panel);
+    position: relative;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .flow .stop b {
+    display: block;
+    font-family: "Bahnschrift", "SF Compact Display", system-ui, sans-serif;
+    font-size: 0.95rem;
+    text-transform: none;
+    letter-spacing: 0.01em;
+    margin-bottom: 2px;
+  }
+  .flow .stop.core   { border-top: 3px solid var(--core); }
+  .flow .stop.trans  { border-top: 3px solid var(--trans); }
+  .flow .stop.app    { border-top: 3px solid var(--app); }
+  .flow .stop.found  { border-top: 3px solid var(--found); }
+  .flow .stop:not(:last-child)::after {
+    content: "→";
+    position: absolute;
+    right: -18px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--ink-dim);
+    font-size: 1rem;
+    display: none;
+  }
+  @media (min-width: 720px) {
+    .flow .stop:not(:last-child)::after { display: block; }
+  }
+
+  /* layer sections */
+  section.layer { margin-bottom: 44px; }
+  .layer-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 4px;
+  }
+  .layer-head .swatch {
+    width: 13px; height: 13px;
+    border-radius: 2px;
+    flex: none;
+  }
+  .layer-head h2 {
+    font-size: 1.3rem;
+    margin: 0;
+  }
+  .layer-head .role {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 0.72rem;
+    color: var(--ink-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .layer-desc {
+    color: var(--ink-dim);
+    font-size: 0.92rem;
+    max-width: 74ch;
+    margin: 6px 0 18px;
+  }
+  .core   .swatch { background: var(--core); }
+  .trans  .swatch { background: var(--trans); }
+  .app    .swatch { background: var(--app); }
+  .found  .swatch { background: var(--found); }
+  .core   h2, .core .role  { color: var(--core); }
+  .trans  h2, .trans .role { color: var(--trans); }
+  .app    h2, .app .role   { color: var(--app); }
+  .found  h2, .found .role { color: var(--found); }
+
+  .modules { display: flex; flex-direction: column; gap: 10px; }
+
+  details.module {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  details.module > summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-family: "Bahnschrift", "SF Compact Display", system-ui, sans-serif;
+    font-weight: 700;
+    font-size: 1.02rem;
+  }
+  details.module > summary::-webkit-details-marker { display: none; }
+  details.module > summary::before {
+    content: "▸";
+    font-family: system-ui, sans-serif;
+    font-size: 0.8rem;
+    color: var(--ink-dim);
+    transition: transform 0.15s ease;
+    flex: none;
+  }
+  details.module[open] > summary::before { transform: rotate(90deg); }
+  details.module > summary .mod-name { }
+  details.module > summary .mod-purpose {
+    font-family: "Iowan Old Style", "Charter", Georgia, serif;
+    font-weight: 400;
+    color: var(--ink-dim);
+    font-size: 0.88rem;
+    font-style: italic;
+  }
+  .core details.module   { border-left: 3px solid var(--core); }
+  .trans details.module  { border-left: 3px solid var(--trans); }
+  .app details.module    { border-left: 3px solid var(--app); }
+  .found details.module  { border-left: 3px solid var(--found); }
+
+  .comp-list {
+    border-top: 1px solid var(--rule);
+    padding: 4px 16px 12px;
+  }
+  .comp {
+    display: grid;
+    grid-template-columns: minmax(150px, 220px) 1fr;
+    gap: 4px 16px;
+    padding: 9px 0;
+    border-bottom: 1px dotted var(--rule);
+    align-items: baseline;
+  }
+  .comp:last-child { border-bottom: none; }
+  .comp .cname {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 0.82rem;
+    color: var(--ink);
+    word-break: break-word;
+  }
+  .core .comp .cname  { color: var(--core); }
+  .trans .comp .cname { color: var(--trans); }
+  .app .comp .cname   { color: var(--app); }
+  .found .comp .cname { color: var(--found); }
+  .comp .crole {
+    font-size: 0.9rem;
+    color: var(--ink-dim);
+  }
+  @media (max-width: 620px) {
+    .comp { grid-template-columns: 1fr; }
+  }
+
+  footer.notes {
+    border-top: 2px solid var(--ink);
+    padding-top: 18px;
+    margin-top: 20px;
+    font-size: 0.88rem;
+    color: var(--ink-dim);
+  }
+  footer.notes h3 {
+    font-family: "Bahnschrift", "SF Compact Display", system-ui, sans-serif;
+    font-size: 0.95rem;
+    color: var(--ink);
+    margin: 0 0 8px;
+  }
+  footer.notes ul { margin: 0 0 18px; padding-left: 20px; }
+  footer.notes li { margin-bottom: 6px; }
+  footer.notes code {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 0.85em;
+    background: var(--panel-2);
+    padding: 1px 5px;
+    border-radius: 2px;
+  }
+</style>
+
+<div class="wrap">
+
+<header class="title-block">
+  <div>
+    <h1 class="head">Engine Schematic — Near-Dimension-Crafts</h1>
+    <p>Every module, component, and subcomponent in the AR hand/body/face + depth-fusion engine, grouped by architectural layer, with each part's functional role in the pipeline.</p>
+  </div>
+  <div class="sheet-meta">
+    sheet 1 / 1<br>
+    package com.arhand<br>
+    rev. 2026-07-11
+  </div>
+</header>
+
+<div class="answer">
+  <span class="tag">Does mapping this out actually help?</span>
+  <p>Yes — for two different reasons. First, as a reference: once it exists you can point at any lag report or feature request and immediately know which layer and file owns it, instead of re-deriving the dependency graph from scratch each time.</p>
+  <p>Second, and more concretely: building it methodically is exactly how the SlamLite full-resolution bug and the three unthrottled Bitmap-reallocation sites got found this session — walking every component forces you to check "does this one follow the same discipline as its siblings," and inconsistencies like that don't show up any other way. The tree below is the result of that same pass, laid out so the next one is easier.</p>
+</div>
+
+<div class="flow">
+  <div class="stop found"><b>Sensors</b>camera + IMU + ARCore</div>
+  <div class="stop core"><b>Core</b>depth &amp; spatial signal</div>
+  <div class="stop trans"><b>Translation</b>semantic keypoints → motion / mesh</div>
+  <div class="stop app"><b>Application</b>render, export, OSC, UI</div>
+</div>
+
+<!-- FOUNDATION -->
+<section class="layer found">
+  <div class="layer-head"><span class="swatch"></span><h2 class="head">Foundation — <span class="mono" style="font-size:0.85em;font-weight:400;">util</span></h2><span class="role">no dependencies</span></div>
+  <p class="layer-desc">Rate-control and budgeting primitives shared by every layer above. Nothing here touches Android APIs or does domain work — it only decides <em>how often</em> the domain work above is allowed to run.</p>
+  <div class="modules">
+    <details class="module">
+      <summary><span class="mod-name">util</span><span class="mod-purpose">adaptive inference-rate governors</span></summary>
+      <div class="comp-list">
+        <div class="comp"><span class="cname">FrameThrottler</span><span class="crole">Gates MediaPipe dispatch (<code class="mono">shouldInfer()</code>); adapts <code class="mono">inferEvery</code> 1–4× from measured dispatch time and hand-motion magnitude. §17.4: fixed a feedback bug where idle-doubling contaminated the true GPU-rate signal — now tracked via a separate <code class="mono">gpuRate</code> field.</span></div>
+        <div class="comp"><span class="cname">ModelBudgetManager</span><span class="crole">Per-model EMA (hand/body/face) against a 25ms frame budget; sheds body detection first, then face, recovers one step per 30 frames once load drops below 70% of budget.</span></div>
+        <div class="comp"><span class="cname">DepthChannelBudget</span><span class="crole">Same shed/recover shape as ModelBudgetManager, scoped to Core-layer channels (SLAM, DA2). Audited this session for the FrameThrottler-class bug — its EMA tracking is structurally independent of shed state, none found.</span></div>
+      </div>
+    </details>
+  </div>
+</section>
+
+<!-- CORE -->
+<section class="layer core">
+  <div class="layer-head"><span class="swatch"></span><h2 class="head">Core</h2><span class="role">camera · depth</span></div>
+  <p class="layer-desc">Sensor pixels in, depth/spatial signal out. No semantic labels — nothing here knows what a "hand" or "joint" is, only where surfaces are in space and how confident that estimate is.</p>
+  <div class="modules">
+
+    <details class="module">
+      <summary><span class="mod-name">camera</span><span class="mod-purpose">sensor acquisition &amp; frame prep</span></summary>
+      <div class="comp-list">
+        <div class="comp"><span class="cname">CameraController</span><span class="crole">Owns the Camera2/CameraX session lifecycle — open, configure, tear down.</span></div>
+        <div class="comp"><span class="cname">CameraFrameProvider</span><span class="crole">Converts YUV → RGBA and handles rotation via a pre-allocated multi-bitmap pool (<code class="mono">rotatedBitmapPool</code>, <code class="mono">outputBitmapPool</code>) — the reference example for the reuse-not-reallocate pattern applied elsewhere this session.</span></div>
+        <div class="comp"><span class="cname">GrayscaleCamera</span><span class="crole">Standalone 320×240 luma-only capture path used where SfM/Photometric need raw Y-plane data without a second camera session.</span></div>
+        <div class="comp"><span class="cname">BitmapGrayscaleShim</span><span class="crole">Feeds CameraFrameProvider's existing Bitmap stream into SfM/Photometric as 320×240 luma FloatArrays, avoiding a second concurrent camera session. §17.6: was reallocating a Bitmap+Matrix on every uncapped camera frame — now a persistent Bitmap+Canvas pair, redrawn in place.</span></div>
+        <div class="comp"><span class="cname">LowLightEnhancer</span><span class="crole">Dark-gated (hysteresis) CLAHE/gamma/unsharp/hot-pixel-suppression/temporal-EMA pipeline, active only below a luminance threshold. §17.6: <code class="mono">meanLuminance()</code>'s per-frame sample bitmap and <code class="mono">enhance()</code>'s output (double-buffered, since MediaPipe's async detector may still be reading the previous frame) both moved off per-call allocation.</span></div>
+      </div>
+    </details>
+
+    <details class="module">
+      <summary><span class="mod-name">depth</span><span class="mod-purpose">12-channel depth fusion &amp; 3D reconstruction</span></summary>
+      <div class="comp-list">
+        <div class="comp"><span class="cname">SpatialLayer</span><span class="crole">Top-level orchestrator for every depth/spatial subsystem below; entry point called once per camera frame from the Translation layer.</span></div>
+        <div class="comp"><span class="cname">FusedDepthSource</span><span class="crole">Owns <code class="mono">processAuxSources()</code> — runs DA2, DRASL/JBU, and (when reconstruction is active) RS-stereo, PSP, stereo capture, flare/moiré detection.</span></div>
+        <div class="comp"><span class="cname">CrossChannelArbiter</span><span class="crole">Fuses all 12 depth channels per depth-block using Gaussian z-score gating against per-channel <code class="mono">baseWeights</code> priors — the evidentiary source for the channel-ranking table below.</span></div>
+        <div class="comp"><span class="cname">ArCoreDepthSource</span><span class="crole">Channel CH_BASE — ARCore's own depth API (ToF/motion-stereo hybrid where hardware supports it). Highest-trust prior.</span></div>
+        <div class="comp"><span class="cname">StructuredLightDepthSource</span><span class="crole">Channel CH_SL — active structured-light pattern projection/decode, where a projector is available.</span></div>
+        <div class="comp"><span class="cname">PhotometricDepthSource</span><span class="crole">Channel CH_PSP — shape-from-shading using varying light direction across frames.</span></div>
+        <div class="comp"><span class="cname">SfMDepthSource</span><span class="crole">Channel CH_DVEL — structure-from-motion using tracked feature displacement across frames (device-velocity-derived parallax).</span></div>
+        <div class="comp"><span class="cname">DepthAnythingSource</span><span class="crole">Channel CH_DA2 — ONNX Runtime CNN (DA2 ViT, fixed 518×518 input), monocular dense depth. Heaviest single compute cost of any channel; always-on per explicit product decision.</span></div>
+        <div class="comp"><span class="cname">StereoDepthSource</span><span class="crole">Channel CH_STEREO — dual-camera stereo disparity where a second lens is available. <code class="mono">extractBitmapLuma()</code> is the original persistent-Bitmap reuse pattern later copied into BitmapGrayscaleShim and SlamLite.</span></div>
+        <div class="comp"><span class="cname">RollingShutterStereo</span><span class="crole">Channel CH_RS — exploits rolling-shutter skew between frames as a synthetic stereo baseline on single-camera devices.</span></div>
+        <div class="comp"><span class="cname">PhaseShiftingProfilometry</span><span class="crole">Channel CH_PSP-adjacent — phase-shift pattern analysis for fine surface detail during active scanning.</span></div>
+        <div class="comp"><span class="cname">FlareDetector</span><span class="crole">Channel CH_FLARE — detects lens-flare-corrupted regions to down-weight unreliable depth blocks rather than estimate depth itself.</span></div>
+        <div class="comp"><span class="cname">MoireDetector</span><span class="crole">Channel CH_MOIRE — detects moiré interference patterns (screen-capture artifacts) to down-weight affected blocks; same consistency-guard role as FlareDetector.</span></div>
+        <div class="comp"><span class="cname">SlamLite</span><span class="crole">Always-on lightweight visual SLAM — Harris corner detection + pyramidal Lucas-Kanade optical flow — for metric pose/motion grounding, not depth per block. §17.5: was the one always-on channel still processing at full camera resolution; now downsamples to 320px width with a compensating scale factor so metric output is unchanged. §17.6: its downsample bitmap also moved to persistent-Bitmap reuse.</span></div>
+        <div class="comp"><span class="cname">SurfaceNormals</span><span class="crole">Derives per-block surface normals from the fused depth map for lighting and mesh-quality use downstream.</span></div>
+        <div class="comp"><span class="cname">AmbientOcclusion</span><span class="crole">Screen-space AO term computed from fused depth, consumed by the renderer — not a depth source itself.</span></div>
+        <div class="comp"><span class="cname">PlaneFitter</span><span class="crole">Fits dominant planes (floor, walls) from the point cloud for scan alignment and room-map anchoring.</span></div>
+        <div class="comp"><span class="cname">VoxelGrid</span><span class="crole">Room map — persistent 5mm-cell spatially-deduplicated point-cloud accumulator, opt-in. Pure downstream consumer of already-fused depth; contributes nothing back to depth accuracy.</span></div>
+        <div class="comp"><span class="cname">TSDFVolume</span><span class="crole">Truncated signed-distance-field volume accumulated during a scan, the intermediate representation surfaces are extracted from.</span></div>
+        <div class="comp"><span class="cname">DepthCarver</span><span class="crole">Converts hand landmarks to world-space geometry (<code class="mono">landmarksToWorld</code>) to carve/refine the mesh during scanning — a data-type dependency on tracking's landmark struct, not a behavioral one.</span></div>
+        <div class="comp"><span class="cname">MarchingCubes</span><span class="crole">Extracts a triangle mesh surface from the TSDF volume at scan-export time.</span></div>
+        <div class="comp"><span class="cname">HandSegmentationMask</span><span class="crole">Builds a hull from hand landmarks to mask the point cloud to hand-only geometry during hand scans.</span></div>
+      </div>
+    </details>
+
+  </div>
+</section>
+
+<!-- TRANSLATION -->
+<section class="layer trans">
+  <div class="layer-head"><span class="swatch"></span><h2 class="head">Translation</h2><span class="role">tracking · mocap · scanner</span></div>
+  <p class="layer-desc">Camera frame → semantic keypoints (MediaPipe landmarks) → structured motion (joint quaternions) → structured geometry (scanned mesh). This is where raw signal first becomes "a hand" or "a pose."</p>
+  <div class="modules">
+
+    <details class="module">
+      <summary><span class="mod-name">tracking</span><span class="mod-purpose">MediaPipe landmark detection &amp; filtering</span></summary>
+      <div class="comp-list">
+        <div class="comp"><span class="cname">HandTrackerManager / HandTracker</span><span class="crole">Runs MediaPipe hand landmarker (21 points/hand); owns GPU→NNAPI→CPU delegate fallback selection.</span></div>
+        <div class="comp"><span class="cname">BodyPipeline</span><span class="crole">Runs MediaPipe pose landmarker (33 points), gated by ModelBudgetManager's shed/recover decision.</span></div>
+        <div class="comp"><span class="cname">FacePipeline</span><span class="crole">Runs MediaPipe face landmarker (478 points), gated the same way as BodyPipeline.</span></div>
+        <div class="comp"><span class="cname">HandPipeline</span><span class="crole">Post-processes raw hand landmarker output before it reaches retargeting/gesture code.</span></div>
+        <div class="comp"><span class="cname">OcclusionEngine</span><span class="crole">Resolves self-occlusion between tracked hand/body segments using depth ordering.</span></div>
+        <div class="comp"><span class="cname">OneEuroFilter</span><span class="crole">Per-landmark low-pass filter tuned to suppress jitter without adding perceptible lag.</span></div>
+        <div class="comp"><span class="cname">TemporalDepthFusion</span><span class="crole">Blends this frame's Core-layer depth at each landmark with recent history for a stable per-joint depth estimate.</span></div>
+        <div class="comp"><span class="cname">SegmentLengthConstraint</span><span class="crole">Clamps bone-segment lengths to plausible human proportions to reject depth-noise-induced limb stretching.</span></div>
+        <div class="comp"><span class="cname">GestureClassifier / CompositeGestureClassifier</span><span class="crole">Classifies static/dynamic hand gestures from landmark geometry.</span></div>
+        <div class="comp"><span class="cname">LandmarkUtils</span><span class="crole">Shared coordinate-space and geometry helpers used across the tracking pipelines.</span></div>
+      </div>
+    </details>
+
+    <details class="module">
+      <summary><span class="mod-name">mocap</span><span class="mod-purpose">keypoints → joint motion &amp; network streaming</span></summary>
+      <div class="comp-list">
+        <div class="comp"><span class="cname">BoneRetargeter</span><span class="crole">Maps hand landmarks onto a target skeleton's bone rotations.</span></div>
+        <div class="comp"><span class="cname">BodyRetargeter</span><span class="crole">Same mapping for full-body pose landmarks → skeleton joint quaternions.</span></div>
+        <div class="comp"><span class="cname">BiomechanicalConstraintFilter</span><span class="crole">Clamps retargeted joint rotations to anatomically valid ranges.</span></div>
+        <div class="comp"><span class="cname">QuaternionEmaFilter</span><span class="crole">Smooths joint-rotation output over time via exponential moving average.</span></div>
+        <div class="comp"><span class="cname">OscStreamer / OscReceiver / OscSchemaAddresses</span><span class="crole">Sends/receives VMC-compatible OSC packets for VTuber/mocap software interop; address schema kept centralized after rPPG's dead sender/address pair was deleted this session.</span></div>
+        <div class="comp"><span class="cname">MotionRecorder</span><span class="crole">Records a motion-capture session to disk for later export.</span></div>
+        <div class="comp"><span class="cname">VrmBlendShapeParser</span><span class="crole">Reads VRM avatar blend-shape definitions for face-tracking output mapping.</span></div>
+        <div class="comp"><span class="cname">AssetLoader / BundledAssetGenerator</span><span class="crole">Loads a GLB/VRM puppet asset from URI/path/bundle; generates a fallback default puppet when the user has none.</span></div>
+        <div class="comp"><span class="cname">LiveMeshDeformer</span><span class="crole">Deforms a loaded mesh in real time to follow retargeted skeleton motion.</span></div>
+      </div>
+    </details>
+
+    <details class="module">
+      <summary><span class="mod-name">scanner</span><span class="mod-purpose">custom 3D mesh capture, in place of an uploaded asset</span></summary>
+      <div class="comp-list">
+        <div class="comp"><span class="cname">Scanner</span><span class="crole">Drives the guided multi-pose capture state machine (<code class="mono">PREFLIGHT → COUNTDOWN → CAPTURING → PROCESSING → DONE/FAILED</code>) that turns a real hand or object into a usable mesh without any pre-made asset.</span></div>
+        <div class="comp"><span class="cname">FreeformScanner</span><span class="crole">Unguided continuous-capture alternative to the fixed 8-pose sequence.</span></div>
+        <div class="comp"><span class="cname">ScanPoses</span><span class="crole">Defines the fixed pose sequence and per-pose capture targets.</span></div>
+        <div class="comp"><span class="cname">CLAHEAnalyzer</span><span class="crole">Contrast-limited adaptive histogram equalization for scan-frame quality, gated to <code class="mono">scanActive</code> only.</span></div>
+        <div class="comp"><span class="cname">QualityEngine</span><span class="crole">Scores captured frames/poses for reconstruction usability, drives retry prompts.</span></div>
+        <div class="comp"><span class="cname">HandBiometrics / JointRom</span><span class="crole">Measures hand dimensions and joint range-of-motion from scan data for a personalized rig.</span></div>
+        <div class="comp"><span class="cname">ManoShapeFitter</span><span class="crole">Fits a parametric hand-shape model (MANO-style) to the scanned point cloud.</span></div>
+        <div class="comp"><span class="cname">PersonalModelStore</span><span class="crole">Persists the fitted personal hand/body model between sessions.</span></div>
+      </div>
+    </details>
+
+  </div>
+</section>
+
+<!-- APPLICATION -->
+<section class="layer app">
+  <div class="layer-head"><span class="swatch"></span><h2 class="head">Application</h2><span class="role">render · export · app</span></div>
+  <p class="layer-desc">Structured motion/geometry → pixels on screen, files on disk, packets on the network. Nothing below this line feeds back into tracking or depth — it's pure output.</p>
+  <div class="modules">
+
+    <details class="module">
+      <summary><span class="mod-name">render</span><span class="mod-purpose">OpenGL scene composition</span></summary>
+      <div class="comp-list">
+        <div class="comp"><span class="cname">ARRenderer</span><span class="crole">Top-level GL scene composer — orders and draws every renderer below into one frame.</span></div>
+        <div class="comp"><span class="cname">HandRenderer / BodySkeletonRenderer / FaceSkeletonRenderer</span><span class="crole">Draw tracked skeletons/landmarks as debug or stylized overlays.</span></div>
+        <div class="comp"><span class="cname">DepthMeshRenderer / DepthCloudRenderer / PointCloudRenderer</span><span class="crole">Visualize the fused depth signal — as a solid mesh, colored point cloud, or sparse points respectively.</span></div>
+        <div class="comp"><span class="cname">LiveMeshRenderer</span><span class="crole">Draws the deforming puppet/avatar mesh driven by mocap output.</span></div>
+        <div class="comp"><span class="cname">CameraPassthroughRenderer</span><span class="crole">Draws the raw camera feed as the AR background layer.</span></div>
+        <div class="comp"><span class="cname">ModelViewerRenderer</span><span class="crole">Standalone GLB preview renderer used by scan-result review and asset picking.</span></div>
+        <div class="comp"><span class="cname">HandMeshBuilder</span><span class="crole">Builds renderable GL geometry from hand landmark/depth data each frame.</span></div>
+        <div class="comp"><span class="cname">LightingModel</span><span class="crole">Shared lighting parameters (direction, ambient term from AmbientOcclusion) applied across renderers.</span></div>
+        <div class="comp"><span class="cname">ShaderPrograms</span><span class="crole">Compiles and caches the GLSL programs every renderer above draws with.</span></div>
+      </div>
+    </details>
+
+    <details class="module">
+      <summary><span class="mod-name">export</span><span class="mod-purpose">writing scan results to disk</span></summary>
+      <div class="comp-list">
+        <div class="comp"><span class="cname">GLBExporter</span><span class="crole">Serializes the scanned/carved mesh to a glTF binary (.glb) file.</span></div>
+        <div class="comp"><span class="cname">TextureBaker</span><span class="crole">Bakes captured color/lighting onto the exported mesh's UV texture.</span></div>
+        <div class="comp"><span class="cname">PointCloudExporter</span><span class="crole">Exports the raw fused point cloud independent of mesh reconstruction.</span></div>
+      </div>
+    </details>
+
+    <details class="module">
+      <summary><span class="mod-name">app</span><span class="mod-purpose">orchestration, state, and UI</span></summary>
+      <div class="comp-list">
+        <div class="comp"><span class="cname">AppViewModel</span><span class="crole">App-wide state holder; wires every module above together for the UI layer.</span></div>
+        <div class="comp"><span class="cname">SpatialFrameProducer</span><span class="crole">Per-camera-frame entry point — calls Core depth processing, then FrameThrottler-gated MediaPipe detection, assembles one <code class="mono">SpatialFrame</code>.</span></div>
+        <div class="comp"><span class="cname">SpatialFrameRouter</span><span class="crole">Fans a produced SpatialFrame out to renderer, OSC streamer, and recorder.</span></div>
+        <div class="comp"><span class="cname">ScanCoordinator</span><span class="crole">Bridges UI scan actions to the Scanner state machine and export pipeline.</span></div>
+        <div class="comp"><span class="cname">AssetManager</span><span class="crole">Tracks the active puppet asset and its DataStore-persisted last-used reference. No current auto-link from a completed scan — loading a fresh scan as the active asset is still a manual two-step action.</span></div>
+        <div class="comp"><span class="cname">RecordingManager</span><span class="crole">Controls start/stop of a MotionRecorder session from the UI.</span></div>
+        <div class="comp"><span class="cname">OscManager</span><span class="crole">Owns OSC connection lifecycle/config surfaced to the UI.</span></div>
+        <div class="comp"><span class="cname">UI screens / composables</span><span class="crole">Compose screens — camera view, scan flow, asset picker, settings — presenting the state above.</span></div>
+      </div>
+    </details>
+
+  </div>
+</section>
+
+<footer class="notes">
+  <h3 class="head">Reading notes</h3>
+  <ul>
+    <li>Module → layer assignment is verified against each module's <code>build.gradle</code> dependency declarations, not inferred: <code>camera, depth → Core</code>; <code>tracking, mocap, scanner → Translation</code>; <code>render, export, app → Application</code>; <code>util</code> sits underneath all three with no dependencies of its own.</li>
+    <li>The one cross-layer exception is <code>depth</code> importing <code>tracking.HandLandmarks</code> in <code>DepthCarver</code> and <code>HandSegmentationMask</code> — a data-type dependency (coordinate math on a landmark struct) rather than a behavioral one, so it's left in place rather than moved.</li>
+    <li>Component roles above reflect current, verified source — including every fix landed this session (§17.4 FrameThrottler, §17.5 SlamLite downsample, §17.6 Bitmap reuse) and the rPPG module, fully removed per direct request and absent from this map.</li>
+  </ul>
+</footer>
+
+</div>

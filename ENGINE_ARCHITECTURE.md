@@ -41,6 +41,9 @@ util (no deps)
 `depth` importing `tracking.HandLandmarks` (2 files, coordinate-math helpers) is a data-type
 dependency, not a behavioral one. Not worth restructuring.
 
+For a visual tree of this layer model down to every individual component and its functional
+role, see [`docs/ENGINE_SCHEMATIC.html`](docs/ENGINE_SCHEMATIC.html) — open it in a browser.
+
 ## 3. Principles
 
 Everything below was checked against these two rules.
