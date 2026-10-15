@@ -1,4 +1,4 @@
-package com.arhand.mocap
+package com.neardimension.handy.mocap
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -13,7 +13,7 @@ import java.net.DatagramSocket
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.charset.StandardCharsets
-import com.arhand.util.Vec3
+import com.neardimension.handy.util.Vec3
 
 /**
  * G3 — Cross-device hand sync via OSC: receiver mode.

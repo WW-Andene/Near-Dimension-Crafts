@@ -1,4 +1,4 @@
-package com.arhand.tracking
+package com.neardimension.handy.tracking
 
 import kotlin.math.abs
 import kotlin.math.acos

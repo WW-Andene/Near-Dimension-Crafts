@@ -1,8 +1,8 @@
-package com.arhand.export
+package com.neardimension.handy.export
 
 import android.content.Context
 import android.os.Environment
-import com.arhand.util.Vec3
+import com.neardimension.handy.util.Vec3
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
@@ -38,7 +38,7 @@ object GLBExporter {
         context:     Context,
         positions:   FloatArray,
         cloudPoints: List<Vec3>,
-        normalMap:   com.arhand.scanner.PhotometricNormalMap? = null,
+        normalMap:   com.neardimension.handy.scanner.PhotometricNormalMap? = null,
         /** HAND-7 — Optional per-pose meshes. Each pair is (poseId, triangleMesh). */
         poseMeshes:  List<Pair<String, FloatArray>>?          = null,
         /** R1 — Optional baked colour texture PNG (512×512). Embedded as baseColorTexture. */
@@ -175,7 +175,7 @@ object GLBExporter {
         val morphDeltas: List<MorphDelta> = if (!poseMeshes.isNullOrEmpty()) {
             poseMeshes.mapNotNull { (poseId, poseMesh) ->
                 if (poseMesh.isEmpty()) return@mapNotNull null
-                val delta = com.arhand.depth.MeshRemesher.computeDelta(baseVertArray, poseMesh)
+                val delta = com.neardimension.handy.depth.MeshRemesher.computeDelta(baseVertArray, poseMesh)
                 val buf = java.nio.ByteBuffer.allocate(delta.size * 4)
                     .order(java.nio.ByteOrder.LITTLE_ENDIAN)
                 delta.forEach { buf.putFloat(it) }
@@ -297,7 +297,7 @@ object GLBExporter {
 
         val primitiveAttrib = """{"attributes":{"POSITION":0,"NORMAL":1,"TEXCOORD_0":2},"indices":3,"mode":4,${morphTargetsJson}${"\"material\":0"}}"""
 
-        val json = """{"asset":{"version":"2.0","generator":"Handy AR Hand Scanner"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"mesh":0}],"meshes":[{"name":"hand","primitives":[$primitiveAttrib],$weightsJson"weights":[${morphDeltas.joinToString(",") { "0.0" }}]}],${materialJson}"accessors":${baseAccessors}${morphAccessorsJson}],"bufferViews":${baseBvJson}${normTexBvJson}${morphBvJson}${colorTexBvJson}],"buffers":[{"byteLength":$totalBinSize}]}"""
+        val json = """{"asset":{"version":"2.0","generator":"Handy"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"mesh":0}],"meshes":[{"name":"hand","primitives":[$primitiveAttrib],$weightsJson"weights":[${morphDeltas.joinToString(",") { "0.0" }}]}],${materialJson}"accessors":${baseAccessors}${morphAccessorsJson}],"bufferViews":${baseBvJson}${normTexBvJson}${morphBvJson}${colorTexBvJson}],"buffers":[{"byteLength":$totalBinSize}]}"""
 
         val jsonBytes  = json.toByteArray(Charsets.UTF_8)
         val jsonPad    = (4 - (jsonBytes.size % 4)) % 4
@@ -355,7 +355,7 @@ object GLBExporter {
      * This matches the standard OpenGL normal map convention expected by most
      * importers (Blender, Unity, Unreal). Returns null if encoding fails.
      */
-    private fun encodeNormalMapAsPng(normalMap: com.arhand.scanner.PhotometricNormalMap): ByteArray? {
+    private fun encodeNormalMapAsPng(normalMap: com.neardimension.handy.scanner.PhotometricNormalMap): ByteArray? {
         return try {
             val bmp = android.graphics.Bitmap.createBitmap(
                 normalMap.width, normalMap.height, android.graphics.Bitmap.Config.ARGB_8888

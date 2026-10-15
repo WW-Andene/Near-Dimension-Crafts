@@ -1,7 +1,7 @@
-package com.arhand.depth
+package com.neardimension.handy.depth
 
-import com.arhand.util.Vec3
-import com.arhand.depth.ArCoreDepthSource
+import com.neardimension.handy.util.Vec3
+import com.neardimension.handy.depth.ArCoreDepthSource
 import kotlin.math.sqrt
 
 /**
@@ -88,7 +88,7 @@ object DepthApiCarver {
      */
     fun carveAndExtract(
         depthFrames: List<List<Vec3>>,
-        normalMap:   com.arhand.util.NormalMap? = null
+        normalMap:   com.neardimension.handy.util.NormalMap? = null
     ): FloatArray {
         if (depthFrames.isEmpty()) return FloatArray(0)
 

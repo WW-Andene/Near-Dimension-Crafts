@@ -1,4 +1,4 @@
-package com.arhand.ui
+package com.neardimension.handy.ui
 
 import android.content.Intent
 import android.opengl.GLSurfaceView
@@ -25,7 +25,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.arhand.scanner.Scanner
+import com.neardimension.handy.scanner.Scanner
 import java.io.File
 
 class MainActivity : ComponentActivity() {
@@ -134,7 +134,7 @@ fun HandyApp(
         derivedStateOf { processedHands.map { it.slotIndex }.sorted().joinToString(",").ifEmpty { "--" } }
     }
     val handSide by remember {
-        derivedStateOf { processedHands.firstOrNull()?.side ?: com.arhand.tracking.HandSide.UNKNOWN }
+        derivedStateOf { processedHands.firstOrNull()?.side ?: com.neardimension.handy.tracking.HandSide.UNKNOWN }
     }
 
     // Hot-path flows — independent collection prevents full-tree recomposition
@@ -431,7 +431,7 @@ fun HandyApp(
                     val path = take.bvhPath ?: take.gltfPath ?: return@TakesLibrarySheet
                     val uri  = androidx.core.content.FileProvider.getUriForFile(
                         localCtx,
-                        "com.arhand.fileprovider", java.io.File(path)
+                        "${localCtx.packageName}.fileprovider", java.io.File(path)
                     )
                     /* share intent handled in activity layer */
                 },

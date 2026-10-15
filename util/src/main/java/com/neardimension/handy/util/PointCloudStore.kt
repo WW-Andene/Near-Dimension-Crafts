@@ -1,4 +1,4 @@
-package com.arhand.util
+package com.neardimension.handy.util
 
 /**
  * Persistent point cloud ring buffer.
@@ -11,7 +11,7 @@ package com.arhand.util
  * PointCloudRenderer uses it as the orbit centre.
  *
  * Thread-safety: [push] is called from whichever background coroutine/thread a given
- * [com.arhand.util.PointCloudStore] instance's producer runs on (e.g. [FusedDepthSource]'s
+ * [com.neardimension.handy.util.PointCloudStore] instance's producer runs on (e.g. [FusedDepthSource]'s
  * processing dispatcher, [StructuredLightDepthSource]'s capture path); [snapshot] is called
  * from *both* the GL thread ([PointCloudRenderer]/`DepthCloudRenderer.onDrawFrame`) *and*
  * `AppViewModel`'s hand-pipeline coroutine (its fused-depth TSDF-integration snapshot). All

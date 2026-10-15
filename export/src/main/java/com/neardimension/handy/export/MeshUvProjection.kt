@@ -1,4 +1,4 @@
-package com.arhand.export
+package com.neardimension.handy.export
 
 /**
  * Single shared cylindrical UV projection used by both [GLBExporter] and [TextureBaker].

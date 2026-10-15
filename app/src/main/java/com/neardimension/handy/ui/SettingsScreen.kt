@@ -1,4 +1,4 @@
-package com.arhand.ui
+package com.neardimension.handy.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -23,8 +23,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.arhand.mocap.OscSchema
-import com.arhand.feature.record.TakeEntry
+import com.neardimension.handy.mocap.OscSchema
+import com.neardimension.handy.feature.record.TakeEntry
 
 /**
  * Gap 1 — Persistent settings screen.

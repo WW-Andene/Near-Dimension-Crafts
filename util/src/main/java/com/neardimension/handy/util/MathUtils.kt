@@ -1,4 +1,4 @@
-package com.arhand.util
+package com.neardimension.handy.util
 
 import kotlin.math.sqrt
 
@@ -34,5 +34,5 @@ data class Vec3(val x: Float, val y: Float, val z: Float) {
 }
 
 // NOTE: lmDist, clampDelta, landmarkToWorld have moved to
-// com.arhand.tracking.LandmarkUtils to fix the inverted util→tracking dependency.
-// Import them from com.arhand.tracking instead.
+// com.neardimension.handy.tracking.LandmarkUtils to fix the inverted util→tracking dependency.
+// Import them from com.neardimension.handy.tracking instead.

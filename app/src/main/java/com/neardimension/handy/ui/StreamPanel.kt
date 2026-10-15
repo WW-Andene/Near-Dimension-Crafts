@@ -1,4 +1,4 @@
-package com.arhand.ui
+package com.neardimension.handy.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -15,7 +15,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.arhand.mocap.OscSchema
+import com.neardimension.handy.mocap.OscSchema
 
 // ── Gap 7: Stream panel ───────────────────────────────────────────────────────
 
@@ -25,12 +25,12 @@ internal fun StreamPanel(
     oscHost:             String,
     oscPort:             Int,
     oscSchema:           OscSchema,
-    oscHealth:           com.arhand.mocap.OscHealthState,
-    discoveredReceivers: List<com.arhand.feature.stream.OscDiscovery.DiscoveredReceiver> = emptyList(),
+    oscHealth:           com.neardimension.handy.mocap.OscHealthState,
+    discoveredReceivers: List<com.neardimension.handy.feature.stream.OscDiscovery.DiscoveredReceiver> = emptyList(),
     isDiscovering:       Boolean = false,
     onToggle:            () -> Unit,
     onDiscoverToggle:    () -> Unit = {},
-    onSelectReceiver:    (com.arhand.feature.stream.OscDiscovery.DiscoveredReceiver) -> Unit = {}
+    onSelectReceiver:    (com.neardimension.handy.feature.stream.OscDiscovery.DiscoveredReceiver) -> Unit = {}
 ) {
     val accentCol = if (isStreaming) Color(0xFF00C853) else Color.White.copy(0.3f)
     Column(

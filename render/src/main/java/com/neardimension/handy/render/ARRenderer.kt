@@ -1,15 +1,15 @@
-package com.arhand.render
+package com.neardimension.handy.render
 
 import android.graphics.Bitmap
 import android.opengl.GLES30
 import android.opengl.GLSurfaceView
 import android.opengl.Matrix
-import com.arhand.mocap.LoadedAsset
-import com.arhand.mocap.RetargetResult
-import com.arhand.tracking.FaceLandmarks
-import com.arhand.tracking.HandLandmarks
-import com.arhand.tracking.PoseLandmarks
-import com.arhand.util.PerfMonitor
+import com.neardimension.handy.mocap.LoadedAsset
+import com.neardimension.handy.mocap.RetargetResult
+import com.neardimension.handy.tracking.FaceLandmarks
+import com.neardimension.handy.tracking.HandLandmarks
+import com.neardimension.handy.tracking.PoseLandmarks
+import com.neardimension.handy.util.PerfMonitor
 import java.util.concurrent.atomic.AtomicReference
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
@@ -125,8 +125,8 @@ class ARRenderer(private val perfMonitor: PerfMonitor) : GLSurfaceView.Renderer 
      * Call each frame when body tracking is active.
      */
     fun updateBodyPose(
-        bodyResult: com.arhand.mocap.BodyRetargetResult?,
-        asset:      com.arhand.mocap.LoadedAsset?
+        bodyResult: com.neardimension.handy.mocap.BodyRetargetResult?,
+        asset:      com.neardimension.handy.mocap.LoadedAsset?
     ) {
         skinnedMeshRenderer.updateBodyPose(bodyResult, asset)
     }
@@ -136,7 +136,7 @@ class ARRenderer(private val perfMonitor: PerfMonitor) : GLSurfaceView.Renderer 
      * [SkinnedMeshRenderer]. Called each frame when face tracking is active and
      * a VRM asset with a blend shape map is loaded.
      */
-    fun applyMorphWeights(applications: List<com.arhand.mocap.MorphApplication>) {
+    fun applyMorphWeights(applications: List<com.neardimension.handy.mocap.MorphApplication>) {
         skinnedMeshRenderer.applyMorphWeights(applications)
     }
 
@@ -155,14 +155,14 @@ class ARRenderer(private val perfMonitor: PerfMonitor) : GLSurfaceView.Renderer 
      * The Int argument is a newly allocated GL texture name that ARCore's camera
      * feed can bind to. AppViewModel wires this to
      * `producer.setCameraTextureName(textureId)`, which forwards down to the active
-     * `com.arhand.depth.ArCoreDepthSource.setCameraTextureName`.
+     * `com.neardimension.handy.depth.ArCoreDepthSource.setCameraTextureName`.
      */
     var onGlSurfaceCreated: ((glTextureId: Int) -> Unit)? = null
 
     /**
      * B6 — Called from [onDrawFrame] once per frame when ARCore depth mode is active.
      * AppViewModel wires this to `producer.onGlFrame()`, which forwards down to
-     * `com.arhand.depth.ArCoreDepthSource.onDrawFrame` on the GL thread, the only
+     * `com.neardimension.handy.depth.ArCoreDepthSource.onDrawFrame` on the GL thread, the only
      * thread where [com.google.ar.core.Session.update] is safe to call.
      */
     var onDepthFrameTick: (() -> Unit)? = null

@@ -1,4 +1,4 @@
-package com.arhand.mocap
+package com.neardimension.handy.mocap
 
 import kotlin.math.abs
 import kotlin.math.acos
@@ -41,7 +41,7 @@ import kotlin.math.sqrt
  * through unchanged.
  *
  * [totalCorrectionRad] — sum of angular corrections applied this frame (radians).
- * Published to [com.arhand.util.PerfMonitor] as `constraintPressure`.
+ * Published to [com.neardimension.handy.util.PerfMonitor] as `constraintPressure`.
  *
  * ## Thread safety
  * Stateless — safe to call from any thread.

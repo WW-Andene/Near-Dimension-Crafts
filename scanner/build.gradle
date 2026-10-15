@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace 'com.arhand.scanner'
+    namespace 'com.neardimension.handy.scanner'
 }
 
 dependencies {

@@ -1,11 +1,11 @@
-package com.arhand.render
+package com.neardimension.handy.render
 
-import com.arhand.mocap.BoneRetargeter
-import com.arhand.mocap.BoneRetargeter.Companion.BONE_SEGMENTS
-import com.arhand.mocap.BoneRetargeter.Companion.JOINT_COUNT
-import com.arhand.mocap.BoneRetargeter.Companion.JOINT_WRIST
-import com.arhand.mocap.RetargetResult
-import com.arhand.util.Vec3
+import com.neardimension.handy.mocap.BoneRetargeter
+import com.neardimension.handy.mocap.BoneRetargeter.Companion.BONE_SEGMENTS
+import com.neardimension.handy.mocap.BoneRetargeter.Companion.JOINT_COUNT
+import com.neardimension.handy.mocap.BoneRetargeter.Companion.JOINT_WRIST
+import com.neardimension.handy.mocap.RetargetResult
+import com.neardimension.handy.util.Vec3
 import android.opengl.Matrix
 import kotlin.math.sqrt
 
@@ -159,7 +159,7 @@ class LiveMeshDeformer {
 
         // Build bone palette: skinMatrix[j] = jointMat[j] × inverseBindMatrix[j]
         val palette = Array(JOINT_COUNT) { ji ->
-            val rot  = result.jointRotations[ji] ?: com.arhand.mocap.Quaternion.IDENTITY
+            val rot  = result.jointRotations[ji] ?: com.neardimension.handy.mocap.Quaternion.IDENTITY
             val jMat = rot.toMatrix()
 
             // Set joint world-space translation from jointPositions.

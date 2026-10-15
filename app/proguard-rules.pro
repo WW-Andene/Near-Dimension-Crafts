@@ -3,8 +3,8 @@
 -keepclassmembers class com.google.mediapipe.** { *; }
 
 # Handy — keep scanner/exporter data classes used via reflection-like JSON parsing
--keep class com.arhand.scanner.HandBiometrics { *; }
--keep class com.arhand.scanner.ModelMeta { *; }
+-keep class com.neardimension.handy.scanner.HandBiometrics { *; }
+-keep class com.neardimension.handy.scanner.ModelMeta { *; }
 
 # Kotlin coroutines
 -keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}

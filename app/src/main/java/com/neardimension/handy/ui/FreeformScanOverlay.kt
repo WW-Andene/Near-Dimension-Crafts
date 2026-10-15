@@ -1,4 +1,4 @@
-package com.arhand.ui
+package com.neardimension.handy.ui
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
@@ -23,7 +23,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import com.arhand.scanner.FreeformScanner
+import com.neardimension.handy.scanner.FreeformScanner
 import kotlin.math.PI
 
 /**

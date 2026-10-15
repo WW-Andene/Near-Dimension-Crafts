@@ -13,12 +13,14 @@ No active illumination is used beyond the device's own torch — see
 engineering notes behind the passive depth pipeline (outdoor light, low-light,
 motion blur, etc.).
 
-> Gradle project name is `Handy`; the repository is `Near-Dimension-Crafts`.
+> Gradle project name is `Handy`; the repository is `Near-Dimension-Crafts`;
+> the Kotlin package and application ID are `com.neardimension.handy`.
 
 ## Documentation
 
 | Document | Contents |
 |---|---|
+| [`docs/VISION.md`](docs/VISION.md) | **Start here.** Project goal (a LiDAR substitute for Android), the three layers, success criteria and roadmap. |
 | [`docs/ENGINE_ARCHITECTURE.md`](docs/ENGINE_ARCHITECTURE.md) | Layer model and every diagnosed issue (§-numbered findings referenced from code comments). |
 | [`docs/REDESIGN_PLAN.md`](docs/REDESIGN_PLAN.md) | The phased fix plan executed against those findings (phases 0–17, all done). |
 | [`docs/ENGINE_SCHEMATIC.html`](docs/ENGINE_SCHEMATIC.html) | Visual tree of every module and component. |

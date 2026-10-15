@@ -1,4 +1,4 @@
-package com.arhand.tracking
+package com.neardimension.handy.tracking
 
 /**
  * G4 — Recognized gesture vocabulary.

@@ -1,4 +1,4 @@
-package com.arhand.camera
+package com.neardimension.handy.camera
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -42,7 +42,7 @@ import kotlin.math.pow
  *    specifically asked for a non-flash way to improve on this, so [accumulateTemporal] instead
  *    runs a continuous exponential moving average over luma — every frame immediately has a
  *    usable (increasingly clean) result, nothing ever blocks waiting for a stack to fill. It
- *    reuses the same motion signal [com.arhand.tracking.HandPipeline]/`FrameThrottler` already
+ *    reuses the same motion signal [com.neardimension.handy.tracking.HandPipeline]/`FrameThrottler` already
  *    compute for idle detection: while the scene is still, frames blend in slowly (real
  *    noise-averaging gain); the instant motion resumes, the accumulator snaps to the current
  *    frame with no blending at all, so a moving hand never sees motion blur from this. Since a
@@ -50,7 +50,7 @@ import kotlin.math.pow
  *    averaging effectively uses those otherwise-idle cycles rather than costing extra ones.
  *
  * Not thread-confined by itself, but not designed for concurrent calls either — callers (this
- * app calls it from [com.arhand.feature.spatial.SpatialFrameProducer]'s single per-frame
+ * app calls it from [com.neardimension.handy.feature.spatial.SpatialFrameProducer]'s single per-frame
  * coroutine) should serialise access, same assumption the rest of that per-frame pipeline makes.
  */
 class LowLightEnhancer {
@@ -275,7 +275,7 @@ class LowLightEnhancer {
     }
 
     /** Single-scale tile-based CLAHE — same CLUT-build/clip/redistribute/bilinear-blend shape
-     *  as [com.arhand.scanner.CLAHEAnalyzer], generalised to a configurable tile count. */
+     *  as [com.neardimension.handy.scanner.CLAHEAnalyzer], generalised to a configurable tile count. */
     private fun runClahe(src: IntArray, w: Int, h: Int, tiles: Int, clipFactor: Float): IntArray {
         val tileW = w / tiles; val tileH = h / tiles
         val cluts = Array(tiles * tiles) { ti ->

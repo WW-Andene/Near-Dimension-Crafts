@@ -1,8 +1,8 @@
-package com.arhand.tracking
+package com.neardimension.handy.tracking
 
-import com.arhand.tracking.clampDelta
-import com.arhand.util.FrameThrottler
-import com.arhand.tracking.LM
+import com.neardimension.handy.tracking.clampDelta
+import com.neardimension.handy.util.FrameThrottler
+import com.neardimension.handy.tracking.LM
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -345,7 +345,7 @@ class HandPipeline {
     /**
      * Called on frames where FrameThrottler skips inference. ENGINE_ARCHITECTURE.md §17.1 —
      * this had zero callers anywhere in the repo until wired into
-     * [com.arhand.feature.spatial.SpatialFrameProducer]'s throttle-skip branch: every skipped
+     * [com.neardimension.handy.feature.spatial.SpatialFrameProducer]'s throttle-skip branch: every skipped
      * frame previously left [processed] completely unchanged, holding a static frozen position
      * for the whole skipped interval (up to `maxEvery` frames, more when idle-doubled) before
      * jumping to the next real detection — a visible stutter on every ordinary throttle cycle,

@@ -1,10 +1,10 @@
-package com.arhand.depth
+package com.neardimension.handy.depth
 
 /**
  * Common contract for all three depth-sensing modes.
  *
  * Each implementation runs on its own background thread and pushes batches
- * of (x, y, z, confidence) floats into a shared [com.arhand.util.PointCloudStore]
+ * of (x, y, z, confidence) floats into a shared [com.neardimension.handy.util.PointCloudStore]
  * via [DepthSourceCallback.onPoints].
  *
  * Lifecycle (called from Activity):

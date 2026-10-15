@@ -1,4 +1,4 @@
-package com.arhand.render
+package com.neardimension.handy.render
 
 import android.opengl.GLES30
 import android.opengl.GLSurfaceView
@@ -30,13 +30,13 @@ class ModelViewerRenderer : GLSurfaceView.Renderer {
      * When non-null and [loadedAsset] has a skin, the bone palette is updated
      * from this result each frame, animating the loaded character in real time.
      */
-    @Volatile var retargetResult: com.arhand.mocap.RetargetResult? = null
+    @Volatile var retargetResult: com.neardimension.handy.mocap.RetargetResult? = null
 
     /**
      * ARCH-3 — Loaded skinned asset. When non-null, [SkinnedMeshRenderer] drives it
      * from [retargetResult]. Falls back to raw mesh rendering when null.
      */
-    @Volatile var loadedAsset: com.arhand.mocap.LoadedAsset? = null
+    @Volatile var loadedAsset: com.neardimension.handy.mocap.LoadedAsset? = null
 
     // ── Camera state (mutated from the UI thread via touch handlers) ──────────
     @Volatile var azimuthDeg:   Float = 30f
@@ -52,7 +52,7 @@ class ModelViewerRenderer : GLSurfaceView.Renderer {
 
     // ARCH-3 — Skinned mesh renderer for the loaded asset (character animation)
     private val skinnedRenderer = SkinnedMeshRenderer()
-    private var lastAssetRef: com.arhand.mocap.LoadedAsset? = null
+    private var lastAssetRef: com.neardimension.handy.mocap.LoadedAsset? = null
 
     private val projMatrix = FloatArray(16)
     private val viewMatrix = FloatArray(16)

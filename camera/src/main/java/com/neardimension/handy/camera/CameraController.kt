@@ -1,4 +1,4 @@
-package com.arhand.camera
+package com.neardimension.handy.camera
 
 import android.content.Context
 import android.hardware.camera2.CameraCharacteristics
@@ -168,7 +168,7 @@ class CameraController(
      * camera's own advertised [CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES],
      * so there's nothing here for a specific device to reject). Best-effort: on any failure
      * (older devices, camera2 quirks) this silently leaves CameraX's own default in place —
-     * same fallback shape as [com.arhand.depth.ArCoreDepthSource]/[GrayscaleCamera]'s existing
+     * same fallback shape as [com.neardimension.handy.depth.ArCoreDepthSource]/[GrayscaleCamera]'s existing
      * device-variance guards. See ENGINE_ARCHITECTURE.md §4.7 (Core-layer lag) — this is the
      * separate camera-stream-rate half of "still not 60fps", not the per-frame processing cost
      * that DepthChannelBudget addresses.

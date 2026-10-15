@@ -1,10 +1,10 @@
-package com.arhand.render
+package com.neardimension.handy.render
 
 import android.content.Context
 import android.opengl.GLES30
 import android.opengl.GLSurfaceView
 import android.opengl.Matrix
-import com.arhand.util.PointCloudStore
+import com.neardimension.handy.util.PointCloudStore
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer

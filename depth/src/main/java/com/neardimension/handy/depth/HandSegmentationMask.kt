@@ -1,7 +1,7 @@
-package com.arhand.depth
+package com.neardimension.handy.depth
 
-import com.arhand.tracking.HandLandmarks
-import com.arhand.util.Vec3
+import com.neardimension.handy.tracking.HandLandmarks
+import com.neardimension.handy.util.Vec3
 
 /**
  * B7 — Hand segmentation mask for cleaner point cloud.
@@ -10,12 +10,12 @@ import com.arhand.util.Vec3
  * the 21 landmarks and discards point-cloud points whose XY projection falls outside
  * that hull.
  *
- * Used to filter the raw ARCore/SfM depth point cloud ([com.arhand.util.PointCloudStore.snapshot])
+ * Used to filter the raw ARCore/SfM depth point cloud ([com.neardimension.handy.util.PointCloudStore.snapshot])
  * before it's handed to [DepthCarver] / TSDF integration, removing background points (desk,
  * wall, other hand) that are not part of the scanned hand.
  *
  * ENGINE_ARCHITECTURE.md §4.11 — the hull used to be built from
- * [com.arhand.tracking.landmarkToWorld]'s output (MediaPipe world landmarks, hand-centred
+ * [com.neardimension.handy.tracking.landmarkToWorld]'s output (MediaPipe world landmarks, hand-centred
  * origin) and compared directly against the point cloud (ARCore-world-anchored coordinates)
  * — two different coordinate frames, so the comparison was meaningless. [buildHullMetric]
  * fixes this by unprojecting each landmark's own 2D pixel + a real measured depth into the

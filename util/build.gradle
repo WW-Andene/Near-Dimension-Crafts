@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace 'com.arhand.util'
+    namespace 'com.neardimension.handy.util'
 }
 
 dependencies {

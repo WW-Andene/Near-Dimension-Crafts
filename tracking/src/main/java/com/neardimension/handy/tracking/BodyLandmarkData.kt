@@ -1,4 +1,4 @@
-package com.arhand.tracking
+package com.neardimension.handy.tracking
 
 /**
  * Landmark types and named index constants for MediaPipe Pose Landmarker (33 points)
@@ -152,8 +152,8 @@ data class FullBodyFrame(
     /**
      * FACE-3 — Derived face expression intensities for the same frame.
      *
-     * Populated in [com.arhand.ui.AppViewModel.ensureFullBodyCollector] from
-     * [com.arhand.tracking.FacePipeline.expressions] when face tracking is active.
+     * Populated in [com.neardimension.handy.ui.AppViewModel.ensureFullBodyCollector] from
+     * [com.neardimension.handy.tracking.FacePipeline.expressions] when face tracking is active.
      * Allows [CompositeGestureClassifier.classify] to use the correct overload that
      * reads expression values rather than always returning [FaceModifier.NONE].
      */

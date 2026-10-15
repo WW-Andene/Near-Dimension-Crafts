@@ -1,4 +1,4 @@
-package com.arhand.camera
+package com.neardimension.handy.camera
 
 import android.graphics.Bitmap
 import android.graphics.Canvas

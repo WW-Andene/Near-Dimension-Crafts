@@ -1,6 +1,6 @@
-package com.arhand.mocap
+package com.neardimension.handy.mocap
 
-import com.arhand.tracking.FaceExpressions
+import com.neardimension.handy.tracking.FaceExpressions
 import org.json.JSONObject
 
 /**
@@ -143,8 +143,8 @@ data class MorphBinding(
 /**
  * A resolved morph target application for a single frame.
  *
- * Produced by [VrmBlendShapeParser.resolve]; consumed by [com.arhand.render.SkinnedMeshRenderer]
- * via its [com.arhand.render.SkinnedMeshRenderer.applyMorphWeights] method.
+ * Produced by [VrmBlendShapeParser.resolve]; consumed by [com.neardimension.handy.render.SkinnedMeshRenderer]
+ * via its [com.neardimension.handy.render.SkinnedMeshRenderer.applyMorphWeights] method.
  */
 data class MorphApplication(
     val meshIndex:        Int,

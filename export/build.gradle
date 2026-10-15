@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace 'com.arhand.export'
+    namespace 'com.neardimension.handy.export'
 }
 
 dependencies {

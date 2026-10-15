@@ -1,4 +1,4 @@
-package com.arhand.ui
+package com.neardimension.handy.ui
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background

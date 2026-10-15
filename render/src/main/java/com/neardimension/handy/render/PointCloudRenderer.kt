@@ -1,4 +1,4 @@
-package com.arhand.render
+package com.neardimension.handy.render
 
 import android.opengl.GLES30
 import android.opengl.Matrix

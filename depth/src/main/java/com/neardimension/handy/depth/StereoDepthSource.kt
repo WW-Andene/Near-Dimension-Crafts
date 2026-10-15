@@ -1,4 +1,4 @@
-package com.arhand.depth
+package com.neardimension.handy.depth
 
 import android.Manifest
 import android.annotation.SuppressLint

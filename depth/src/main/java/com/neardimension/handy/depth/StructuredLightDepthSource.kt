@@ -1,7 +1,7 @@
-package com.arhand.depth
+package com.neardimension.handy.depth
 
 import android.graphics.Bitmap
-import com.arhand.util.PointCloudStore
+import com.neardimension.handy.util.PointCloudStore
 import kotlin.math.*
 
 /**

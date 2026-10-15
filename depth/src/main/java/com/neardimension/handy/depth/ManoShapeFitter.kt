@@ -1,6 +1,6 @@
-package com.arhand.depth
+package com.neardimension.handy.depth
 
-import com.arhand.util.Vec3
+import com.neardimension.handy.util.Vec3
 import kotlin.math.*
 
 /**

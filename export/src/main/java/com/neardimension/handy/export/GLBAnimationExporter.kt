@@ -1,11 +1,11 @@
-package com.arhand.export
+package com.neardimension.handy.export
 
-import com.arhand.mocap.BoneRetargeter
-import com.arhand.mocap.LoadedAsset
-import com.arhand.mocap.MotionRecorder
-import com.arhand.mocap.Quaternion
-import com.arhand.mocap.WristTransform
-import com.arhand.util.Vec3
+import com.neardimension.handy.mocap.BoneRetargeter
+import com.neardimension.handy.mocap.LoadedAsset
+import com.neardimension.handy.mocap.MotionRecorder
+import com.neardimension.handy.mocap.Quaternion
+import com.neardimension.handy.mocap.WristTransform
+import com.neardimension.handy.util.Vec3
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File

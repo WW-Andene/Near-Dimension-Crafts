@@ -1,4 +1,4 @@
-package com.arhand.util
+package com.neardimension.handy.util
 
 interface NormalMap {
     val width: Int

@@ -1,14 +1,14 @@
-package com.arhand.feature.spatial
+package com.neardimension.handy.feature.spatial
 
-import com.arhand.depth.PlaneFitter
-import com.arhand.depth.SlamLite
-import com.arhand.depth.SurfaceNormals
-import com.arhand.mocap.RetargetResult
-import com.arhand.mocap.BodyRetargetResult
-import com.arhand.tracking.FaceExpressions
-import com.arhand.tracking.HandLandmarks
-import com.arhand.tracking.PoseLandmarks
-import com.arhand.util.Vec3
+import com.neardimension.handy.depth.PlaneFitter
+import com.neardimension.handy.depth.SlamLite
+import com.neardimension.handy.depth.SurfaceNormals
+import com.neardimension.handy.mocap.RetargetResult
+import com.neardimension.handy.mocap.BodyRetargetResult
+import com.neardimension.handy.tracking.FaceExpressions
+import com.neardimension.handy.tracking.HandLandmarks
+import com.neardimension.handy.tracking.PoseLandmarks
+import com.neardimension.handy.util.Vec3
 
 /**
  * SpatialFrame — the unified per-frame truth object.
@@ -144,7 +144,7 @@ data class SpatialFrame(
  * depth at that landmark. Consumers prefer [slCorrectedZ[i]] over [landmarks[i].z].
  *
  * [occluded] flags landmarks where occlusion probability exceeds the hysteresis
- * threshold in [com.arhand.tracking.OcclusionEngine].
+ * threshold in [com.neardimension.handy.tracking.OcclusionEngine].
  */
 data class SpatializedHand(
     val slotIndex:    Int,

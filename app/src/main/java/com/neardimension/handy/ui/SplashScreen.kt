@@ -1,4 +1,4 @@
-package com.arhand.ui
+package com.neardimension.handy.ui
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -55,7 +55,7 @@ fun SplashScreen(
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                text = "AR HAND SCANNER",
+                text = "SOFTWARE LIDAR",
                 fontSize = 11.sp,
                 color = Color.White.copy(alpha = 0.4f),
                 fontFamily = FontFamily.Monospace,

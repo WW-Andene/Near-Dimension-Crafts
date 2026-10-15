@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace 'com.arhand.tracking'
+    namespace 'com.neardimension.handy.tracking'
 }
 
 dependencies {

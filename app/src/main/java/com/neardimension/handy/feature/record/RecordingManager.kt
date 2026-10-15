@@ -1,11 +1,11 @@
-package com.arhand.feature.record
+package com.neardimension.handy.feature.record
 
 import android.app.Application
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
-import com.arhand.mocap.LoadedAsset
-import com.arhand.mocap.MotionRecorder
+import com.neardimension.handy.mocap.LoadedAsset
+import com.neardimension.handy.mocap.MotionRecorder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -80,7 +80,7 @@ class RecordingManager(
      */
     suspend fun exportAndAppend(
         outputDir:      java.io.File,
-        scannedOffsets: Map<Int, com.arhand.util.Vec3>?,
+        scannedOffsets: Map<Int, com.neardimension.handy.util.Vec3>?,
         loadedAsset:    LoadedAsset
     ) {
         val recordingStart = _state.value.recordingStartMs
@@ -96,7 +96,7 @@ class RecordingManager(
         val label = rawLabel.replace(' ', '_').replace(Regex("[^A-Za-z0-9_\\-]"), "")
 
         val bvhFile  = motionRecorder.exportBvh(outputDir, label, scannedOffsets)
-        val gltfFile = com.arhand.export.GLBAnimationExporter.export(
+        val gltfFile = com.neardimension.handy.export.GLBAnimationExporter.export(
             frames    = snapshot,
             asset     = loadedAsset,
             outputDir = outputDir,

@@ -1,8 +1,8 @@
-package com.arhand.scanner
+package com.neardimension.handy.scanner
 
 import android.graphics.Bitmap
-import com.arhand.tracking.HandLandmarks
-import com.arhand.util.Vec3
+import com.neardimension.handy.tracking.HandLandmarks
+import com.neardimension.handy.util.Vec3
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -299,8 +299,8 @@ class FreeformScanner {
      * Elevation: tilt above/below horizontal (-π/2 to π/2)
      */
     private fun wristOrientation(lms: HandLandmarks): Pair<Float, Float> {
-        val w  = lms[com.arhand.tracking.LM.WRIST]
-        val m  = lms[com.arhand.tracking.LM.MIDDLE_MCP]
+        val w  = lms[com.neardimension.handy.tracking.LM.WRIST]
+        val m  = lms[com.neardimension.handy.tracking.LM.MIDDLE_MCP]
         val dx = m.x - w.x
         val dy = m.y - w.y
         val dz = m.z - w.z

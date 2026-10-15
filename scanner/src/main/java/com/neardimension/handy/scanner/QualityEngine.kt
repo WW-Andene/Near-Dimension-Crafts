@@ -1,8 +1,8 @@
-package com.arhand.scanner
+package com.neardimension.handy.scanner
 
-import com.arhand.tracking.HandLandmarks
-import com.arhand.tracking.LM
-import com.arhand.tracking.lmDist
+import com.neardimension.handy.tracking.HandLandmarks
+import com.neardimension.handy.tracking.LM
+import com.neardimension.handy.tracking.lmDist
 import kotlin.math.abs
 import kotlin.math.sqrt
 

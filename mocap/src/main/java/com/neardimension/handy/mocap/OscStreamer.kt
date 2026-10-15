@@ -1,6 +1,6 @@
-package com.arhand.mocap
+package com.neardimension.handy.mocap
 
-import com.arhand.tracking.FaceExpressions
+import com.neardimension.handy.tracking.FaceExpressions
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -422,7 +422,7 @@ class OscStreamer {
      * Attach a structured-light depth result to be included in the next [sendFrame] call.
      * Called from the SL processing path (AppViewModel) after each processed frame.
      */
-    @Volatile var pendingSLResult: com.arhand.depth.StructuredLightDepthSource.SLResult? = null
+    @Volatile var pendingSLResult: com.neardimension.handy.depth.StructuredLightDepthSource.SLResult? = null
 
     /**
      * Fused-sl-v7 port: emit `/depth/map` (8×6 normalised float grid) and
@@ -433,7 +433,7 @@ class OscStreamer {
      * or use it for scene-awareness without the full point cloud overhead.
      */
     private fun sendDepthMapBundle(
-        slResult:   com.arhand.depth.StructuredLightDepthSource.SLResult,
+        slResult:   com.neardimension.handy.depth.StructuredLightDepthSource.SLResult,
         confidence: Float,
         skt:        java.net.DatagramSocket,
         addr:       java.net.InetAddress

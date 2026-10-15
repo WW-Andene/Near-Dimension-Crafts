@@ -1,10 +1,10 @@
-package com.arhand.scanner
+package com.neardimension.handy.scanner
 
-import com.arhand.tracking.HandLandmarks
-import com.arhand.tracking.LM
-import com.arhand.tracking.Landmark
-import com.arhand.tracking.landmarkToWorld
-import com.arhand.util.Vec3
+import com.neardimension.handy.tracking.HandLandmarks
+import com.neardimension.handy.tracking.LM
+import com.neardimension.handy.tracking.Landmark
+import com.neardimension.handy.tracking.landmarkToWorld
+import com.neardimension.handy.util.Vec3
 import kotlin.math.PI
 import kotlin.math.sqrt
 

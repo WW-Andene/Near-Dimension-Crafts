@@ -1,4 +1,4 @@
-package com.arhand.mocap
+package com.neardimension.handy.mocap
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

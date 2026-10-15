@@ -1,8 +1,8 @@
-package com.arhand.mocap
+package com.neardimension.handy.mocap
 
 import android.content.Context
 import android.net.Uri
-import com.arhand.util.Vec3
+import com.neardimension.handy.util.Vec3
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.InputStream

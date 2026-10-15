@@ -1,4 +1,4 @@
-package com.arhand.scanner
+package com.neardimension.handy.scanner
 
 /**
  * D5 — Range-of-motion result for a single joint.

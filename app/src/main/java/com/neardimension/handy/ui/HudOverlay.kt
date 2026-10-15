@@ -1,4 +1,4 @@
-package com.arhand.ui
+package com.neardimension.handy.ui
 
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
@@ -12,9 +12,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.arhand.util.PerfState
-import com.arhand.util.ModelBudgetManager
-import com.arhand.tracking.Gesture
+import com.neardimension.handy.util.PerfState
+import com.neardimension.handy.util.ModelBudgetManager
+import com.neardimension.handy.tracking.Gesture
 
 /**
  * Top-right HUD overlay — FPS / inference ms / skip ratio.
@@ -34,11 +34,11 @@ fun HudOverlay(
     landmarkCount: Int = 0,
     activeSlots: String = "--",
     activeGesture: Gesture? = null,
-    handSide: com.arhand.tracking.HandSide = com.arhand.tracking.HandSide.UNKNOWN,
+    handSide: com.neardimension.handy.tracking.HandSide = com.neardimension.handy.tracking.HandSide.UNKNOWN,
     /** Gap 3 — OSC health for connection status indicator. */
-    oscHealth: com.arhand.mocap.OscHealthState = com.arhand.mocap.OscHealthState(),
+    oscHealth: com.neardimension.handy.mocap.OscHealthState = com.neardimension.handy.mocap.OscHealthState(),
     /** Spatial layer state — always-on depth sensing status. */
-    spatialState: com.arhand.depth.SpatialLayer.SpatialState = com.arhand.depth.SpatialLayer.SpatialState(),
+    spatialState: com.neardimension.handy.depth.SpatialLayer.SpatialState = com.neardimension.handy.depth.SpatialLayer.SpatialState(),
     /** Fused-sl-v7: SL calibration progress 0..1, or -1 when SL inactive. */
     slCalibProgress: Float = -1f,
     slDrifting: Boolean = false
@@ -119,9 +119,9 @@ fun HudOverlay(
                 HudLabel("SLOTS", activeSlots,              Plasma.copy(alpha = 0.7f))
                 // Hand side
                 val sideColor = when (handSide) {
-                    com.arhand.tracking.HandSide.PALM    -> Color(0xFF00E676)
-                    com.arhand.tracking.HandSide.BACK    -> Color(0xFF448AFF)
-                    com.arhand.tracking.HandSide.UNKNOWN -> Plasma.copy(alpha = 0.4f)
+                    com.neardimension.handy.tracking.HandSide.PALM    -> Color(0xFF00E676)
+                    com.neardimension.handy.tracking.HandSide.BACK    -> Color(0xFF448AFF)
+                    com.neardimension.handy.tracking.HandSide.UNKNOWN -> Plasma.copy(alpha = 0.4f)
                 }
                 HudLabel("SIDE", handSide.name, sideColor)
                 // G4: Active gesture display

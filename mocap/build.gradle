@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace 'com.arhand.mocap'
+    namespace 'com.neardimension.handy.mocap'
 }
 
 dependencies {

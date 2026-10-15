@@ -1,4 +1,4 @@
-package com.arhand.depth.fusion
+package com.neardimension.handy.depth.fusion
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -6,22 +6,22 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
-import com.arhand.depth.ArCoreDepthSource
-import com.arhand.depth.CrossChannelArbiter
-import com.arhand.depth.DarkRoomAdaptiveSL
-import com.arhand.depth.DepthAnythingSource
-import com.arhand.depth.DepthSource
-import com.arhand.depth.DepthSourceCallback
-import com.arhand.depth.FlareDetector
-import com.arhand.depth.JointBilateralUpsampler
-import com.arhand.depth.MoireDetector
-import com.arhand.depth.PhaseShiftingProfilometry
-import com.arhand.depth.PhotometricDepthSource
-import com.arhand.depth.RollingShutterStereo
-import com.arhand.depth.SfMDepthSource
-import com.arhand.depth.StereoDepthSource
-import com.arhand.util.PointCloudStore
-import com.arhand.camera.BitmapGrayscaleShim
+import com.neardimension.handy.depth.ArCoreDepthSource
+import com.neardimension.handy.depth.CrossChannelArbiter
+import com.neardimension.handy.depth.DarkRoomAdaptiveSL
+import com.neardimension.handy.depth.DepthAnythingSource
+import com.neardimension.handy.depth.DepthSource
+import com.neardimension.handy.depth.DepthSourceCallback
+import com.neardimension.handy.depth.FlareDetector
+import com.neardimension.handy.depth.JointBilateralUpsampler
+import com.neardimension.handy.depth.MoireDetector
+import com.neardimension.handy.depth.PhaseShiftingProfilometry
+import com.neardimension.handy.depth.PhotometricDepthSource
+import com.neardimension.handy.depth.RollingShutterStereo
+import com.neardimension.handy.depth.SfMDepthSource
+import com.neardimension.handy.depth.StereoDepthSource
+import com.neardimension.handy.util.PointCloudStore
+import com.neardimension.handy.camera.BitmapGrayscaleShim
 import kotlinx.coroutines.CoroutineScope
 import kotlin.math.abs
 import kotlin.math.sqrt
@@ -420,7 +420,7 @@ class FusedDepthSource(
     }
 
     /**
-     * Release ARCore's hold on the rear camera before [com.arhand.camera.CameraController]
+     * Release ARCore's hold on the rear camera before [com.neardimension.handy.camera.CameraController]
      * switches onto it, and reacquire once it switches away — see
      * [ArCoreDepthSource.pauseCameraHold] / ENGINE_ARCHITECTURE.md §4.9.
      */

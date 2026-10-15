@@ -1,4 +1,4 @@
-package com.arhand.tracking
+package com.neardimension.handy.tracking
 
 /**
  * Single hand landmark.

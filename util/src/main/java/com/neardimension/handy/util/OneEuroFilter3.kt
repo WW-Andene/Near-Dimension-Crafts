@@ -1,4 +1,4 @@
-package com.arhand.util
+package com.neardimension.handy.util
 
 import kotlin.math.PI
 import kotlin.math.abs

@@ -1,9 +1,9 @@
-package com.arhand.depth
+package com.neardimension.handy.depth
 
 import android.content.Context
-import com.arhand.camera.BitmapGrayscaleShim
-import com.arhand.depth.fusion.FusedDepthSource
-import com.arhand.util.Vec3
+import com.neardimension.handy.camera.BitmapGrayscaleShim
+import com.neardimension.handy.depth.fusion.FusedDepthSource
+import com.neardimension.handy.util.Vec3
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -98,7 +98,7 @@ class SpatialLayer(private val context: Context) {
     val planes  = PlaneFitter()
     /**
      * Persistent, spatially-deduplicated room-scale point map — off by default, gated by
-     * [setRoomMapActive]. Distinct from [fusedDepth]'s [PointCloudStore][com.arhand.util.PointCloudStore]
+     * [setRoomMapActive]. Distinct from [fusedDepth]'s [PointCloudStore][com.neardimension.handy.util.PointCloudStore]
      * (`fusedDepth.store`), which is a capacity-bounded, age-ordered live buffer for the active
      * scan: this instead keeps one best-confidence sample per 5mm world-space cell, with no
      * age-based eviction, so walking around a room accumulates a stable map instead of a
@@ -197,9 +197,9 @@ class SpatialLayer(private val context: Context) {
     fun clearRoomMap() = voxelGrid.reset()
 
     /**
-     * Release ARCore's hold on the rear camera before [com.arhand.camera.CameraController]
+     * Release ARCore's hold on the rear camera before [com.neardimension.handy.camera.CameraController]
      * switches onto it, and reacquire once it switches away again — call around
-     * [com.arhand.camera.CameraController.switchCamera] (ENGINE_ARCHITECTURE.md §4.9).
+     * [com.neardimension.handy.camera.CameraController.switchCamera] (ENGINE_ARCHITECTURE.md §4.9).
      */
     fun pauseArcoreCameraHold()  = fusedDepth.pauseArcoreCameraHold()
     fun resumeArcoreCameraHold() = fusedDepth.resumeArcoreCameraHold()
@@ -211,10 +211,10 @@ class SpatialLayer(private val context: Context) {
      * [SpatialFrameProducer.processBitmap].
      *
      * Callers that need a flow reading for
-     * [com.arhand.depth.fusion.FusedDepthSource.processAuxSources] should read
+     * [com.neardimension.handy.depth.fusion.FusedDepthSource.processAuxSources] should read
      * [currentFlowSnapshot] at DA2's dispatch point rather than expect this call to have
      * completed by the time it returns — see [SlamLite.processAsync]'s doc for why that's
-     * already this system's tolerance under [com.arhand.util.DepthChannelBudget] throttling,
+     * already this system's tolerance under [com.neardimension.handy.util.DepthChannelBudget] throttling,
      * not a new relaxation introduced here.
      */
     fun processBitmapAsync(bitmap: android.graphics.Bitmap, scope: CoroutineScope) {
@@ -223,7 +223,7 @@ class SpatialLayer(private val context: Context) {
 
     /**
      * SlamLite's most recently completed optical-flow reading. May be from an earlier frame
-     * if SlamLite is still processing a newer one, or was shed by [com.arhand.util.DepthChannelBudget]
+     * if SlamLite is still processing a newer one, or was shed by [com.neardimension.handy.util.DepthChannelBudget]
      * this frame — same "stale but recent" contract every always-on Core channel's output has.
      */
     fun currentFlowSnapshot(): DepthAnythingSource.FlowSnapshot =
@@ -373,7 +373,7 @@ class SpatialLayer(private val context: Context) {
      * live ARCore pose — exactly the same unprojection [ArCoreDepthSource.onDrawFrame] already
      * performs per-pixel for its own depth cloud, just evaluated at one landmark's pixel
      * instead of a dense grid. That keeps this landmark's result in the *same* coordinate
-     * frame [com.arhand.util.PointCloudStore]'s ARCore/SfM cloud is already in, which is what
+     * frame [com.neardimension.handy.util.PointCloudStore]'s ARCore/SfM cloud is already in, which is what
      * callers like [HandSegmentationMask.buildHullMetric] actually need to cross-reference
      * against it.
      *

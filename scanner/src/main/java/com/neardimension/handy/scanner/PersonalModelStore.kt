@@ -1,4 +1,4 @@
-package com.arhand.scanner
+package com.neardimension.handy.scanner
 
 import android.content.Context
 import androidx.datastore.core.DataStore

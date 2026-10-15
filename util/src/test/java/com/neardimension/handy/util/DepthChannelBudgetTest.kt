@@ -1,4 +1,4 @@
-package com.arhand.util
+package com.neardimension.handy.util
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue

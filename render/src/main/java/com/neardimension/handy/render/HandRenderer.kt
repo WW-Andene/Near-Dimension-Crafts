@@ -1,11 +1,11 @@
-package com.arhand.render
+package com.neardimension.handy.render
 
 import android.opengl.GLES30
 import android.opengl.Matrix
-import com.arhand.tracking.HandLandmarks
-import com.arhand.tracking.LM
-import com.arhand.tracking.landmarkToWorld
-import com.arhand.util.Vec3
+import com.neardimension.handy.tracking.HandLandmarks
+import com.neardimension.handy.tracking.LM
+import com.neardimension.handy.tracking.landmarkToWorld
+import com.neardimension.handy.util.Vec3
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer

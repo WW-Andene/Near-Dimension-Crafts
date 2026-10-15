@@ -1,13 +1,13 @@
-package com.arhand.feature.stream
+package com.neardimension.handy.feature.stream
 
 import android.app.Application
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
-import com.arhand.mocap.OscMode
-import com.arhand.mocap.OscSchema
-import com.arhand.mocap.OscStreamer
+import com.neardimension.handy.mocap.OscMode
+import com.neardimension.handy.mocap.OscSchema
+import com.neardimension.handy.mocap.OscStreamer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow

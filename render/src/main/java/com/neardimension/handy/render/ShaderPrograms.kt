@@ -1,4 +1,4 @@
-package com.arhand.render
+package com.neardimension.handy.render
 
 /**
  * GLSL shader sources for OpenGL ES 3.0.

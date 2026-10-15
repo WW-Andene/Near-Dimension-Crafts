@@ -1,14 +1,14 @@
-package com.arhand.feature.asset
+package com.neardimension.handy.feature.asset
 
 import android.app.Application
 import android.net.Uri
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
-import com.arhand.mocap.AssetLoader
-import com.arhand.mocap.AssetSlot
-import com.arhand.mocap.BundledAssetGenerator
-import com.arhand.mocap.LoadedAsset
+import com.neardimension.handy.mocap.AssetLoader
+import com.neardimension.handy.mocap.AssetSlot
+import com.neardimension.handy.mocap.BundledAssetGenerator
+import com.neardimension.handy.mocap.LoadedAsset
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow

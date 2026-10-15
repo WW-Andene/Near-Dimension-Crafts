@@ -1,11 +1,11 @@
-package com.arhand.mocap
+package com.neardimension.handy.mocap
 
-import com.arhand.tracking.PL
-import com.arhand.tracking.PoseLandmarks
-import com.arhand.util.Vec3
+import com.neardimension.handy.tracking.PL
+import com.neardimension.handy.tracking.PoseLandmarks
+import com.neardimension.handy.util.Vec3
 
 /**
- * BODY-1 — Converts live [PoseLandmarks] from [com.arhand.tracking.BodyPipeline]
+ * BODY-1 — Converts live [PoseLandmarks] from [com.neardimension.handy.tracking.BodyPipeline]
  * into a map of [BodyJoint] rotations suitable for driving a full-body rigged asset.
  *
  * Mirrors the same shortest-arc-quaternion approach used by [BoneRetargeter] for hands.

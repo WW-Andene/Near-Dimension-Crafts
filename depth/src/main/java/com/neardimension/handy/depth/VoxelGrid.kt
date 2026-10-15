@@ -1,4 +1,4 @@
-package com.arhand.depth
+package com.neardimension.handy.depth
 
 /**
  * VoxelGrid — sparse voxel room map.
@@ -13,13 +13,13 @@ package com.arhand.depth
  *
  * ## Point format
  *
- * Input arrays use the same stride-4 layout as [com.arhand.util.PointCloudStore]:
+ * Input arrays use the same stride-4 layout as [com.neardimension.handy.util.PointCloudStore]:
  *   [x, y, z, confidence]  (metric, camera space or world space after transform)
  *
  * ## Export
  *
  * [exportAsArray] returns a flat FloatArray of (x, y, z, confidence) tuples for
- * rendering via [com.arhand.render.DepthCloudRenderer] or similar.
+ * rendering via [com.neardimension.handy.render.DepthCloudRenderer] or similar.
  */
 class VoxelGrid(
     val cellSize:   Float = 0.005f,   // voxel cell edge length (metres) — 5 mm default

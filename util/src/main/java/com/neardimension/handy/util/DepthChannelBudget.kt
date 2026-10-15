@@ -1,4 +1,4 @@
-package com.arhand.util
+package com.neardimension.handy.util
 
 /**
  * PERF-2 — Core-layer (depth/SLAM) per-frame budget manager.

@@ -1,8 +1,8 @@
-package com.arhand.depth
+package com.neardimension.handy.depth
 
 import android.content.Context
-import com.arhand.camera.GrayscaleCamera
-import com.arhand.util.OneEuroFilter3
+import com.neardimension.handy.camera.GrayscaleCamera
+import com.neardimension.handy.util.OneEuroFilter3
 import kotlin.math.*
 
 /**
@@ -98,10 +98,10 @@ class PhotometricDepthSource(private val context: Context) : DepthSource {
 
     private val camera = GrayscaleCamera(context)
     private var callback: DepthSourceCallback? = null
-    private var shim: com.arhand.camera.BitmapGrayscaleShim? = null
+    private var shim: com.neardimension.handy.camera.BitmapGrayscaleShim? = null
 
     /** Attach a shim — see [SfMDepthSource.attachShim] for rationale. Must be called before [start]. */
-    fun attachShim(s: com.arhand.camera.BitmapGrayscaleShim) { shim = s }
+    fun attachShim(s: com.neardimension.handy.camera.BitmapGrayscaleShim) { shim = s }
 
     // Alternating state: collect OFF then ON frames
     private var torchState = false

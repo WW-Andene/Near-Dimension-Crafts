@@ -1,30 +1,30 @@
-package com.arhand.feature.spatial
+package com.neardimension.handy.feature.spatial
 
 import android.app.Application
 import android.graphics.Bitmap
-import com.arhand.camera.BitmapGrayscaleShim
-import com.arhand.camera.CameraFrameProvider
-import com.arhand.camera.LowLightEnhancer
-import com.arhand.depth.CrossChannelArbiter
-import com.arhand.depth.DepthCarver
-import com.arhand.depth.StructuredLightDepthSource
-import com.arhand.depth.SpatialLayer
-import com.arhand.mocap.BiomechanicalConstraintFilter
-import com.arhand.mocap.BoneRetargeter
-import com.arhand.mocap.BodyRetargeter
-import com.arhand.mocap.BodyRetargeterState
-import com.arhand.mocap.QuaternionEmaFilter
-import com.arhand.tracking.BodyPipeline
-import com.arhand.scanner.CLAHEAnalyzer
-import com.arhand.tracking.FacePipeline
-import com.arhand.tracking.HandPipeline
-import com.arhand.tracking.HandTrackerManager
-import com.arhand.tracking.LM
-import com.arhand.util.DepthChannelBudget
-import com.arhand.util.FrameThrottler
-import com.arhand.util.ModelBudgetManager
-import com.arhand.util.PerfMonitor
-import com.arhand.util.Vec3
+import com.neardimension.handy.camera.BitmapGrayscaleShim
+import com.neardimension.handy.camera.CameraFrameProvider
+import com.neardimension.handy.camera.LowLightEnhancer
+import com.neardimension.handy.depth.CrossChannelArbiter
+import com.neardimension.handy.depth.DepthCarver
+import com.neardimension.handy.depth.StructuredLightDepthSource
+import com.neardimension.handy.depth.SpatialLayer
+import com.neardimension.handy.mocap.BiomechanicalConstraintFilter
+import com.neardimension.handy.mocap.BoneRetargeter
+import com.neardimension.handy.mocap.BodyRetargeter
+import com.neardimension.handy.mocap.BodyRetargeterState
+import com.neardimension.handy.mocap.QuaternionEmaFilter
+import com.neardimension.handy.tracking.BodyPipeline
+import com.neardimension.handy.scanner.CLAHEAnalyzer
+import com.neardimension.handy.tracking.FacePipeline
+import com.neardimension.handy.tracking.HandPipeline
+import com.neardimension.handy.tracking.HandTrackerManager
+import com.neardimension.handy.tracking.LM
+import com.neardimension.handy.util.DepthChannelBudget
+import com.neardimension.handy.util.FrameThrottler
+import com.neardimension.handy.util.ModelBudgetManager
+import com.neardimension.handy.util.PerfMonitor
+import com.neardimension.handy.util.Vec3
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -111,13 +111,13 @@ class SpatialFrameProducer(
 
     // ── Per-hand retargeters (owned here, not in ViewModel) ──────────────────
 
-    private var boneRetargeter          = BoneRetargeter(com.arhand.mocap.AssetLoader.DEFAULT_PUPPET.bindPose)
-    private var boneRetargeterSecondary = BoneRetargeter(com.arhand.mocap.AssetLoader.DEFAULT_PUPPET.bindPose)
+    private var boneRetargeter          = BoneRetargeter(com.neardimension.handy.mocap.AssetLoader.DEFAULT_PUPPET.bindPose)
+    private var boneRetargeterSecondary = BoneRetargeter(com.neardimension.handy.mocap.AssetLoader.DEFAULT_PUPPET.bindPose)
     private val qEma                    = QuaternionEmaFilter()
     private val qEmaSecondary           = QuaternionEmaFilter()
 
     /** Call when a new asset is loaded to update the bind pose for retargeting. */
-    fun onAssetLoaded(asset: com.arhand.mocap.LoadedAsset) {
+    fun onAssetLoaded(asset: com.neardimension.handy.mocap.LoadedAsset) {
         boneRetargeter          = BoneRetargeter(asset.bindPose)
         boneRetargeterSecondary = BoneRetargeter(asset.bindPose)
         qEma.reset(); qEmaSecondary.reset()
@@ -152,7 +152,7 @@ class SpatialFrameProducer(
     private val lowLightEnhancer = LowLightEnhancer()
     private val _isDarkMode = MutableStateFlow(false)
     /** True while [lowLightEnhancer] is actively enhancing frames — AppViewModel observes
-     *  this to drive [com.arhand.camera.CameraController.setLowLightExposure] in lockstep. */
+     *  this to drive [com.neardimension.handy.camera.CameraController.setLowLightExposure] in lockstep. */
     val isDarkMode: StateFlow<Boolean> = _isDarkMode
 
     /**
@@ -166,13 +166,13 @@ class SpatialFrameProducer(
     var onCameraFrame: ((Bitmap) -> Unit)? = null
 
     /**
-     * Construct the [com.arhand.camera.CameraController] wired to this producer's
+     * Construct the [com.neardimension.handy.camera.CameraController] wired to this producer's
      * [frameProvider] — the one legitimate external need for that instance (feeding it
      * frames from the camera hardware), kept to construction time rather than exposing
      * the property itself for ongoing access.
      */
-    fun createCameraController(context: android.content.Context): com.arhand.camera.CameraController =
-        com.arhand.camera.CameraController(context, frameProvider)
+    fun createCameraController(context: android.content.Context): com.neardimension.handy.camera.CameraController =
+        com.neardimension.handy.camera.CameraController(context, frameProvider)
 
     fun init() {
         trackerMgr = HandTrackerManager(app) { rawHands, conf, ts ->
@@ -205,8 +205,8 @@ class SpatialFrameProducer(
         }
     }
 
-    private val _latestBodyResult    = MutableStateFlow<com.arhand.mocap.BodyRetargetResult?>(null)
-    private val _latestBodyLandmarks = MutableStateFlow<com.arhand.tracking.PoseLandmarks?>(null)
+    private val _latestBodyResult    = MutableStateFlow<com.neardimension.handy.mocap.BodyRetargetResult?>(null)
+    private val _latestBodyLandmarks = MutableStateFlow<com.neardimension.handy.tracking.PoseLandmarks?>(null)
 
     /**
      * This producer's own body-retarget output — the canonical one, computed once per
@@ -215,8 +215,8 @@ class SpatialFrameProducer(
      * reads this instead of calling `bodyRetargeter.retarget()` again with its own state, which
      * would be a second live retargeting pass computing the same thing redundantly.
      */
-    val latestBodyResult: StateFlow<com.arhand.mocap.BodyRetargetResult?> = _latestBodyResult
-    val latestBodyLandmarks: StateFlow<com.arhand.tracking.PoseLandmarks?> = _latestBodyLandmarks
+    val latestBodyResult: StateFlow<com.neardimension.handy.mocap.BodyRetargetResult?> = _latestBodyResult
+    val latestBodyLandmarks: StateFlow<com.neardimension.handy.tracking.PoseLandmarks?> = _latestBodyLandmarks
     // This producer's own grace-period/EMA state for BodyRetargeter.retarget() — see
     // BodyRetargeter's class doc on why this must not be shared with any other caller.
     private var bodyRetargeterState = BodyRetargeterState.INITIAL
@@ -367,7 +367,7 @@ class SpatialFrameProducer(
      * happen here — not in AppViewModel.
      */
     fun assembleFrame(
-        hands:              List<com.arhand.tracking.ProcessedHand>,
+        hands:              List<com.neardimension.handy.tracking.ProcessedHand>,
         aspect:             Float,
         constraintEnabled:  Boolean
     ) {
@@ -534,7 +534,7 @@ class SpatialFrameProducer(
      */
     private fun spatializeHand(
         slotIndex: Int,
-        lms:       com.arhand.tracking.HandLandmarks,
+        lms:       com.neardimension.handy.tracking.HandLandmarks,
         slRes:     StructuredLightDepthSource.SLResult?
     ): SpatializedHand {
         val occluded  = BooleanArray(lms.size)

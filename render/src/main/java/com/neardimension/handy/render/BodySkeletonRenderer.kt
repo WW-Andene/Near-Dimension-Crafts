@@ -1,9 +1,9 @@
-package com.arhand.render
+package com.neardimension.handy.render
 
 import android.opengl.GLES30
 import android.opengl.Matrix
-import com.arhand.tracking.PL
-import com.arhand.tracking.PoseLandmarks
+import com.neardimension.handy.tracking.PL
+import com.neardimension.handy.tracking.PoseLandmarks
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer

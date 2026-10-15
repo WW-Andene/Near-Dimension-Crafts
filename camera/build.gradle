@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace 'com.arhand.camera'
+    namespace 'com.neardimension.handy.camera'
 }
 
 dependencies {

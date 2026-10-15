@@ -1,6 +1,21 @@
 # Changelog
 
-## Unreleased — maintenance pass (2026-10)
+## Unreleased — project goal and rename (2026-10)
+
+### Added
+- `docs/VISION.md`: the project goal (a LiDAR substitute for Android phones),
+  the Detection → Translation → Application layers, measurable success
+  criteria, public-dataset benchmark plan and roadmap.
+
+### Changed
+- Package and application ID renamed `com.arhand` → `com.neardimension.handy`
+  across all modules. **An install of the old `com.arhand` build is a separate
+  app**: uninstall it; its local data (scans, takes) is not carried over.
+- Splash and first onboarding page now describe the app as a software LiDAR.
+- The takes library's share URI uses the package name instead of a hardcoded
+  authority.
+
+## Maintenance pass (2026-10)
 
 First pass after several months without activity: cleanup, dependency update and
 restructuring. Verified locally with unit tests, lint, debug and release builds;

@@ -1,4 +1,4 @@
-package com.arhand.depth
+package com.neardimension.handy.depth
 
 import android.graphics.Bitmap
 import kotlin.math.abs
@@ -21,7 +21,7 @@ import kotlin.math.sqrt
  * Depth is estimated as:   z = baseline × focal_px / disparity
  *
  * Output is the same S3.2 52-entry 3-tier spatial pyramid every other channel in
- * [com.arhand.depth.fusion.FusedDepthSource] uses (see [StereoDepthSource]'s identical
+ * [com.neardimension.handy.depth.fusion.FusedDepthSource] uses (see [StereoDepthSource]'s identical
  * [depthToBlockIdx] for the tier geometry) — RS-stereo only resolves depth per column
  * (rows within a column share one estimate, since top/bottom strip disparity is
  * inherently 1D horizontal), so each column's estimate is broadcast across every

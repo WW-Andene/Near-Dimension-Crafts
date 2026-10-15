@@ -1,4 +1,4 @@
-package com.arhand.feature.stream
+package com.neardimension.handy.feature.stream
 
 import android.content.Context
 import android.net.nsd.NsdManager

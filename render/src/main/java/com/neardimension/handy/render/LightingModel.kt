@@ -1,4 +1,4 @@
-package com.arhand.render
+package com.neardimension.handy.render
 
 /**
  * 5-light model — exact match to HTML prototype lighting setup.

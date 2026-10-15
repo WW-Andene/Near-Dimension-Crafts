@@ -1,4 +1,4 @@
-package com.arhand.util
+package com.neardimension.handy.util
 
 /**
  * Adaptive frame throttler — mirrors _inferEvery logic in the HTML prototype.

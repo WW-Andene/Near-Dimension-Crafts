@@ -1,8 +1,8 @@
-package com.arhand.render
+package com.neardimension.handy.render
 
-import com.arhand.tracking.HandLandmarks
-import com.arhand.tracking.landmarkToWorld
-import com.arhand.util.Vec3
+import com.neardimension.handy.tracking.HandLandmarks
+import com.neardimension.handy.tracking.landmarkToWorld
+import com.neardimension.handy.util.Vec3
 import kotlin.math.*
 
 /**

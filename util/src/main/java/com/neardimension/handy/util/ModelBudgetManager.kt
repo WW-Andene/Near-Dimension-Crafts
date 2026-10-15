@@ -1,9 +1,9 @@
-package com.arhand.util
+package com.neardimension.handy.util
 
 /**
  * PERF-1 — Multi-model inference budget manager.
  *
- * Problem: [com.arhand.util.FrameThrottler] adapts hand inference rate based on
+ * Problem: [com.neardimension.handy.util.FrameThrottler] adapts hand inference rate based on
  * hand dispatch time alone. Body and face models are submitted unconditionally on
  * every throttled frame alongside the hand. At 30fps with 3 model submissions the
  * combined async-dispatch time can exceed the frame budget, causing visible jank
@@ -169,9 +169,9 @@ class ModelBudgetManager {
  * Per-frame model submission decision from [ModelBudgetManager.tick].
  */
 data class SubmitDecision(
-    /** Whether to call [com.arhand.tracking.BodyPipeline.detect] this frame. */
+    /** Whether to call [com.neardimension.handy.tracking.BodyPipeline.detect] this frame. */
     val submitBody:       Boolean,
-    /** Whether to call [com.arhand.tracking.FacePipeline.detect] this frame. */
+    /** Whether to call [com.neardimension.handy.tracking.FacePipeline.detect] this frame. */
     val submitFace:       Boolean,
     /** Number of models being submitted this frame (for telemetry). */
     val activeModelCount: Int,

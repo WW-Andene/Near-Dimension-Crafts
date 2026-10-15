@@ -1,21 +1,21 @@
-package com.arhand.feature.scan
+package com.neardimension.handy.feature.scan
 
 import android.graphics.Bitmap
-import com.arhand.depth.DepthApiCarver
-import com.arhand.depth.DepthCarver
-import com.arhand.depth.ManoShapeFitter
-import com.arhand.depth.NeuralImplicitCarver
-import com.arhand.depth.TSDFVolume
-import com.arhand.mocap.BoneRetargeter
-import com.arhand.scanner.HandBiometrics
-import com.arhand.scanner.PersonalModelStore
-import com.arhand.tracking.HandLandmarks
-import com.arhand.util.Vec3
+import com.neardimension.handy.depth.DepthApiCarver
+import com.neardimension.handy.depth.DepthCarver
+import com.neardimension.handy.depth.ManoShapeFitter
+import com.neardimension.handy.depth.NeuralImplicitCarver
+import com.neardimension.handy.depth.TSDFVolume
+import com.neardimension.handy.mocap.BoneRetargeter
+import com.neardimension.handy.scanner.HandBiometrics
+import com.neardimension.handy.scanner.PersonalModelStore
+import com.neardimension.handy.tracking.HandLandmarks
+import com.neardimension.handy.util.Vec3
 
 /**
  * All inputs needed to process a completed scan.
  *
- * Constructed by [com.arhand.ui.AppViewModel] at scan completion time from
+ * Constructed by [com.neardimension.handy.ui.AppViewModel] at scan completion time from
  * thread-safe snapshots of all mutable buffers. Once constructed this object
  * is immutable and safe to pass to [ScanPipeline.process] on any dispatcher.
  */
@@ -25,7 +25,7 @@ data class ScanInput(
     val biometricFrames:    List<Pair<HandLandmarks, Float>>,
     val capturedDepth:      List<List<Vec3>>,
     val capturedBitmaps:    List<Bitmap>,
-    val normalMap:          com.arhand.scanner.PhotometricNormalMap?,
+    val normalMap:          com.neardimension.handy.scanner.PhotometricNormalMap?,
     val tsdfVolume:         TSDFVolume,
     val incrementalCarver:  NeuralImplicitCarver?,
     val neuralReconEnabled: Boolean,
@@ -48,9 +48,9 @@ data class ScanResult(
     val colorTexturePng:     ByteArray?,
     val glbFile:             java.io.File?,
     val biometrics:          HandBiometrics?,
-    val biometricHistory:    List<com.arhand.scanner.BiometricHistoryEntry>,
+    val biometricHistory:    List<com.neardimension.handy.scanner.BiometricHistoryEntry>,
     val neuralDiagnostics:   NeuralReconDiagnostics?,
-    val jointRomData:        com.arhand.scanner.JointRomData?,
+    val jointRomData:        com.neardimension.handy.scanner.JointRomData?,
     val calibratedOefCutoff: Float?,
     val calibratedOefBeta:   Float?
 )
@@ -60,7 +60,7 @@ data class ScanResult(
  *
  * This is a pure function class — no Android framework dependencies,
  * no ViewModel references. All side effects (updating the renderer,
- * persisting the GLB path) are performed by [com.arhand.ui.AppViewModel]
+ * persisting the GLB path) are performed by [com.neardimension.handy.ui.AppViewModel]
  * after it receives the [ScanResult].
  *
  * [process] is a suspend function and must be called from a coroutine.
@@ -129,9 +129,9 @@ class ScanPipeline {
 
                     // Per-pose blend shapes (HAND-7)
                     if (neuralMesh.isNotEmpty()) {
-                        poseMeshesForBlendShapes = com.arhand.scanner.ScanPoses.ALL
+                        poseMeshesForBlendShapes = com.neardimension.handy.scanner.ScanPoses.ALL
                             .mapIndexed { poseIdx, pose ->
-                                val framesPerPose = maxOf(1, input.capturedFrames.size / com.arhand.scanner.ScanPoses.COUNT)
+                                val framesPerPose = maxOf(1, input.capturedFrames.size / com.neardimension.handy.scanner.ScanPoses.COUNT)
                                 val start = poseIdx * framesPerPose
                                 val end   = minOf(start + framesPerPose, input.capturedFrames.size)
                                 if (start >= input.capturedFrames.size) return@mapIndexed null
@@ -159,7 +159,7 @@ class ScanPipeline {
         }.onFailure { android.util.Log.e("ScanPipeline", "Step 2 (neural/MANO recon) failed", it) }
          .getOrDefault(FloatArray(0))
         val meshPos = if (neuralOrDepthMesh.isNotEmpty())
-            com.arhand.depth.MeshSmoother.smooth(neuralOrDepthMesh, iterations = 3, lambda = 0.5f)
+            com.neardimension.handy.depth.MeshSmoother.smooth(neuralOrDepthMesh, iterations = 3, lambda = 0.5f)
         else FloatArray(0)
 
         // ── Step 4: Rest joint positions ──────────────────────────────────────
@@ -174,8 +174,8 @@ class ScanPipeline {
                     ?.let { it.width.toFloat() / it.height.toFloat() } ?: input.aspect
                 for ((jointIdx, baseIdx, tipIdx) in BoneRetargeter.BONE_SEGMENTS) {
                     val bl = best.first[baseIdx]; val tl = best.first[tipIdx]
-                    val (bx, by, bz) = com.arhand.tracking.landmarkToWorld(bl, input.aspect, input.isFrontCamera, camAspect)
-                    val (tx, ty, tz) = com.arhand.tracking.landmarkToWorld(tl, input.aspect, input.isFrontCamera, camAspect)
+                    val (bx, by, bz) = com.neardimension.handy.tracking.landmarkToWorld(bl, input.aspect, input.isFrontCamera, camAspect)
+                    val (tx, ty, tz) = com.neardimension.handy.tracking.landmarkToWorld(tl, input.aspect, input.isFrontCamera, camAspect)
                     rjp[jointIdx * 3]     = (bx + tx) * 0.5f
                     rjp[jointIdx * 3 + 1] = (by + ty) * 0.5f
                     rjp[jointIdx * 3 + 2] = (bz + tz) * 0.5f
@@ -188,7 +188,7 @@ class ScanPipeline {
         // ── Step 5: Texture bake (R1) ─────────────────────────────────────────
         val colorTexturePng: ByteArray? = runCatching {
             if (input.capturedBitmaps.isNotEmpty() && meshPos.isNotEmpty())
-                com.arhand.export.TextureBaker.bakeFromTriangles(meshPos, input.capturedBitmaps)
+                com.neardimension.handy.export.TextureBaker.bakeFromTriangles(meshPos, input.capturedBitmaps)
             else null
         }.onFailure { android.util.Log.e("ScanPipeline", "Step 5 (texture bake) failed", it) }
          .getOrNull()
@@ -207,7 +207,7 @@ class ScanPipeline {
         val glbFile: java.io.File? = runCatching {
             val outputDir = context.getExternalFilesDir("scans") ?: return@runCatching null
             outputDir.mkdirs()
-            com.arhand.export.GLBExporter.export(
+            com.neardimension.handy.export.GLBExporter.export(
                 context         = context,
                 positions       = meshPos,
                 cloudPoints     = input.cloudPoints,
@@ -258,7 +258,7 @@ class ScanPipeline {
 }
 
 fun calibrateOef(
-    frames: List<Pair<com.arhand.tracking.HandLandmarks, Float>>
+    frames: List<Pair<com.neardimension.handy.tracking.HandLandmarks, Float>>
 ): Pair<Float, Float>? {
     if (frames.size < 4) return null
     val lmCount = frames.first().first.size
@@ -286,16 +286,16 @@ fun calibrateOef(
     val meanVel = if (velocityCount > 0) totalVelocity / velocityCount else 0.01f
     val cutoff  = if (sigma > 1e-6f)
         (1f / (2f * Math.PI.toFloat() * sigma))
-        else com.arhand.tracking.HandPipeline.OEF_MIN_CUTOFF_XY
+        else com.neardimension.handy.tracking.HandPipeline.OEF_MIN_CUTOFF_XY
 
     val beta = (meanVel * 120f).coerceIn(
-        com.arhand.tracking.HandPipeline.OEF_BETA_MIN_CLAMP,
-        com.arhand.tracking.HandPipeline.OEF_BETA_MAX_CLAMP
+        com.neardimension.handy.tracking.HandPipeline.OEF_BETA_MIN_CLAMP,
+        com.neardimension.handy.tracking.HandPipeline.OEF_BETA_MAX_CLAMP
     )
 
     return Pair(
-        cutoff.coerceIn(com.arhand.tracking.HandPipeline.OEF_CUTOFF_MIN_CLAMP,
-                        com.arhand.tracking.HandPipeline.OEF_CUTOFF_MAX_CLAMP),
+        cutoff.coerceIn(com.neardimension.handy.tracking.HandPipeline.OEF_CUTOFF_MIN_CLAMP,
+                        com.neardimension.handy.tracking.HandPipeline.OEF_CUTOFF_MAX_CLAMP),
         beta
     )
 }

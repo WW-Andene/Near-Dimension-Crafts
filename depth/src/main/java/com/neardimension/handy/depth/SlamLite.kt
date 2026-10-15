@@ -1,4 +1,4 @@
-package com.arhand.depth
+package com.neardimension.handy.depth
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -87,7 +87,7 @@ class SlamLite {
      * optical flow at the full incoming camera resolution (commonly 640×480 — `computeLuma`
      * alone touches ~307k pixels every call). Every other always-on Core channel that shares
      * this same camera stream already works at a reduced resolution
-     * ([com.arhand.camera.BitmapGrayscaleShim] downsamples to 320×240 for SfM/Photometric) —
+     * ([com.neardimension.handy.camera.BitmapGrayscaleShim] downsamples to 320×240 for SfM/Photometric) —
      * SlamLite was the one outlier still paying full-resolution cost for a sparse-feature
      * visual-odometry algorithm that only needs a coarse pose estimate, not per-pixel
      * precision. Downsampling here to at most [PROC_MAX_WIDTH] wide cuts `computeLuma`/Harris
@@ -122,11 +122,11 @@ class SlamLite {
      * [medianFlowNX]/[medianFlowNY] update once the background call completes, which may be
      * one or more frames later. Drops the frame instead of overlapping if a previous call is
      * still running (ENGINE_ARCHITECTURE.md §17.7) — same contract callers already tolerate
-     * whenever [com.arhand.util.DepthChannelBudget] sheds "slam" for a frame, so this doesn't
+     * whenever [com.neardimension.handy.util.DepthChannelBudget] sheds "slam" for a frame, so this doesn't
      * introduce a new kind of staleness, only makes the existing one possible more often.
      *
      * [bitmap] is defensively copied before the background call reads it, since the camera
-     * pipeline's bitmap pool ([com.arhand.camera.CameraFrameProvider]) may reuse/overwrite the
+     * pipeline's bitmap pool ([com.neardimension.handy.camera.CameraFrameProvider]) may reuse/overwrite the
      * same object a few frames later, while this call may still be in flight.
      */
     fun processAsync(bitmap: Bitmap, scope: CoroutineScope) {

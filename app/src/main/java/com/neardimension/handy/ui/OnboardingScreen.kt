@@ -1,4 +1,4 @@
-package com.arhand.ui
+package com.neardimension.handy.ui
 
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
@@ -40,7 +40,7 @@ private val PAGES = listOf(
     OnboardingPage(
         glyph  = "✋",
         title  = "HANDY",
-        body   = "AR Hand Scanner captures the geometry of your hand using your phone camera — no depth sensor required.",
+        body   = "A software LiDAR for your phone: real-world depth and full-body motion capture from the camera alone — no depth sensor required.",
         accent = Plasma
     ),
     OnboardingPage(

@@ -1,11 +1,11 @@
-package com.arhand.render
+package com.neardimension.handy.render
 
 import android.opengl.GLES30
 import android.opengl.Matrix
-import com.arhand.mocap.BoneRetargeter
-import com.arhand.mocap.LoadedAsset
-import com.arhand.mocap.Quaternion
-import com.arhand.mocap.RetargetResult
+import com.neardimension.handy.mocap.BoneRetargeter
+import com.neardimension.handy.mocap.LoadedAsset
+import com.neardimension.handy.mocap.Quaternion
+import com.neardimension.handy.mocap.RetargetResult
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
@@ -162,8 +162,8 @@ class SkinnedMeshRenderer {
      * Safe to call with null — no-ops silently so the hand-only path is unaffected.
      */
     fun updateBodyPose(
-        bodyResult: com.arhand.mocap.BodyRetargetResult?,
-        asset:      com.arhand.mocap.LoadedAsset?
+        bodyResult: com.neardimension.handy.mocap.BodyRetargetResult?,
+        asset:      com.neardimension.handy.mocap.LoadedAsset?
     ) {
         if (bodyResult == null || asset == null) return
         val jointMap = asset.bodyJointMap
@@ -182,7 +182,7 @@ class SkinnedMeshRenderer {
             val jointMat = rot.toMatrix()
 
             // Apply Hips root translation when this is the root body joint
-            if (bodyJoint == com.arhand.mocap.BodyJoint.HIPS) {
+            if (bodyJoint == com.neardimension.handy.mocap.BodyJoint.HIPS) {
                 // Centre body on-screen — use a fixed offset so it doesn't drift
                 jointMat[12] = 0f; jointMat[13] = 0f; jointMat[14] = -1f
             }
@@ -208,7 +208,7 @@ class SkinnedMeshRenderer {
      *
      * Thread safety: called from tracking coroutine; morphWeights is @Volatile.
      */
-    fun applyMorphWeights(applications: List<com.arhand.mocap.MorphApplication>) {
+    fun applyMorphWeights(applications: List<com.neardimension.handy.mocap.MorphApplication>) {
         if (morphTargetCount == 0) return
         val weights = FloatArray(morphTargetCount)
         for (app in applications) {

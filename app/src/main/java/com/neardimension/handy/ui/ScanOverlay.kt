@@ -1,4 +1,4 @@
-package com.arhand.ui
+package com.neardimension.handy.ui
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
@@ -24,7 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.window.Dialog
-import com.arhand.scanner.Scanner
+import com.neardimension.handy.scanner.Scanner
 
 /**
  * Full-screen scan overlay — rendered on top of the AR view during scanning.

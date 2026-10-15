@@ -1,4 +1,4 @@
-package com.arhand.feature.tracking
+package com.neardimension.handy.feature.tracking
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -12,8 +12,8 @@ import kotlinx.coroutines.flow.asStateFlow
  *  - Face expression tracking toggle
  *  - Biomechanical constraint filter toggle
  *
- * Consumed by [com.arhand.ui.AppViewModel] to gate pipeline calls and
- * by [com.arhand.ui.SettingsScreen] for the toggle UI.
+ * Consumed by [com.neardimension.handy.ui.AppViewModel] to gate pipeline calls and
+ * by [com.neardimension.handy.ui.SettingsScreen] for the toggle UI.
  */
 class TrackingManager {
 
@@ -40,9 +40,9 @@ class TrackingManager {
 /**
  * Immutable state snapshot for the tracking subsystem.
  *
- * @param bodyEnabled        True when [com.arhand.tracking.BodyPipeline] is active.
- * @param faceEnabled        True when [com.arhand.tracking.FacePipeline] is active.
- * @param constraintEnabled  True when [com.arhand.mocap.BiomechanicalConstraintFilter] runs.
+ * @param bodyEnabled        True when [com.neardimension.handy.tracking.BodyPipeline] is active.
+ * @param faceEnabled        True when [com.neardimension.handy.tracking.FacePipeline] is active.
+ * @param constraintEnabled  True when [com.neardimension.handy.mocap.BiomechanicalConstraintFilter] runs.
  */
 data class TrackingState(
     val bodyEnabled:       Boolean = false,

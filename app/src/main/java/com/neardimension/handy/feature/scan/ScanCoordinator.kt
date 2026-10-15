@@ -1,21 +1,21 @@
-package com.arhand.feature.scan
+package com.neardimension.handy.feature.scan
 
 import android.app.Application
 import android.graphics.Bitmap
-import com.arhand.camera.CameraController
-import com.arhand.depth.NeuralImplicitCarver
-import com.arhand.depth.SpatialLayer
-import com.arhand.depth.TSDFVolume
-import com.arhand.feature.spatial.SpatialFrameRouter
-import com.arhand.render.ARRenderer
-import com.arhand.render.LiveMeshDeformer
-import com.arhand.scanner.FreeformScanner
-import com.arhand.scanner.PersonalModelStore
-import com.arhand.scanner.PhotometricNormalMap
-import com.arhand.scanner.PhotometricStereoCapture
-import com.arhand.scanner.Scanner
-import com.arhand.tracking.HandPipeline
-import com.arhand.ui.AppUiState
+import com.neardimension.handy.camera.CameraController
+import com.neardimension.handy.depth.NeuralImplicitCarver
+import com.neardimension.handy.depth.SpatialLayer
+import com.neardimension.handy.depth.TSDFVolume
+import com.neardimension.handy.feature.spatial.SpatialFrameRouter
+import com.neardimension.handy.render.ARRenderer
+import com.neardimension.handy.render.LiveMeshDeformer
+import com.neardimension.handy.scanner.FreeformScanner
+import com.neardimension.handy.scanner.PersonalModelStore
+import com.neardimension.handy.scanner.PhotometricNormalMap
+import com.neardimension.handy.scanner.PhotometricStereoCapture
+import com.neardimension.handy.scanner.Scanner
+import com.neardimension.handy.tracking.HandPipeline
+import com.neardimension.handy.ui.AppUiState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -323,7 +323,7 @@ class ScanCoordinator(
             tsdfVolume         = tsdfVolume,
             incrementalCarver  = incrementalCarver,
             neuralReconEnabled = scanState.value.neuralReconEnabled,
-            smplEnabled        = com.arhand.BuildConfig.FEATURE_SMPL_BODY,
+            smplEnabled        = com.neardimension.handy.BuildConfig.FEATURE_SMPL_BODY,
             aspect             = currentAspect.value,
             isFrontCamera      = uiState.value.isFrontCamera,
             modelStore         = modelStore
@@ -407,7 +407,7 @@ class ScanCoordinator(
             tsdfVolume         = tsdfVolume,
             incrementalCarver  = incrementalCarver,
             neuralReconEnabled = scanState.value.neuralReconEnabled,
-            smplEnabled        = com.arhand.BuildConfig.FEATURE_SMPL_BODY,
+            smplEnabled        = com.neardimension.handy.BuildConfig.FEATURE_SMPL_BODY,
             aspect             = currentAspect.value,
             isFrontCamera      = uiState.value.isFrontCamera,
             modelStore         = modelStore

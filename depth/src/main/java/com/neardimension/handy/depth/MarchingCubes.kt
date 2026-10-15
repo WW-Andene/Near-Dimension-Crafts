@@ -1,4 +1,4 @@
-package com.arhand.depth
+package com.neardimension.handy.depth
 
 /**
  * Marching Cubes — port of the full ET[256]/TT[] implementation from the HTML prototype.

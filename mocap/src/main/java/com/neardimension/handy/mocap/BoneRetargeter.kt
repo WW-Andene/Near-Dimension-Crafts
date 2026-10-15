@@ -1,9 +1,9 @@
-package com.arhand.mocap
+package com.neardimension.handy.mocap
 
-import com.arhand.tracking.HandLandmarks
-import com.arhand.tracking.LM
-import com.arhand.tracking.landmarkToWorld
-import com.arhand.util.Vec3
+import com.neardimension.handy.tracking.HandLandmarks
+import com.neardimension.handy.tracking.LM
+import com.neardimension.handy.tracking.landmarkToWorld
+import com.neardimension.handy.util.Vec3
 import kotlin.math.acos
 import kotlin.math.sqrt
 
@@ -312,7 +312,7 @@ data class RetargetResult(
     val wristTransform: WristTransform,
     /**
      * World-space position of each joint in the current frame, keyed by JOINT_* constants.
-     * Required by [com.arhand.render.LiveMeshDeformer] to build correct LBS bone matrices —
+     * Required by [com.neardimension.handy.render.LiveMeshDeformer] to build correct LBS bone matrices —
      * without per-joint translation, non-wrist joints all pivot around the world origin.
      */
     val jointPositions: Map<Int, Vec3> = emptyMap()
@@ -324,8 +324,8 @@ data class RetargetResult(
  * ARCH-1 — One data structure representing the complete tracked performance for a frame.
  *
  * Replaces the three independent streams (hand [RetargetResult], [BodyRetargetResult],
- * [com.arhand.tracking.FaceExpressions]) that previously flowed through separate paths
- * to [com.arhand.mocap.OscStreamer], [MotionRecorder], and [com.arhand.export.GLBAnimationExporter].
+ * [com.neardimension.handy.tracking.FaceExpressions]) that previously flowed through separate paths
+ * to [com.neardimension.handy.mocap.OscStreamer], [MotionRecorder], and [com.neardimension.handy.export.GLBAnimationExporter].
  *
  * Any field may be null if that pipeline is inactive or produced no result this frame.
  * Consumers check nullability and degrade gracefully — e.g. OSC skips body bones when
@@ -338,10 +338,10 @@ data class FullBodyRetargetResult(
     val handPrimary:     RetargetResult?,
     /** Secondary hand retarget result (slot 1, typically left hand). Null when absent. */
     val handSecondary:   RetargetResult?,
-    /** Body joint rotations from [com.arhand.mocap.BodyRetargeter]. Null when body tracking off. */
+    /** Body joint rotations from [com.neardimension.handy.mocap.BodyRetargeter]. Null when body tracking off. */
     val body:            BodyRetargetResult?,
-    /** Face expression intensities from [com.arhand.tracking.FacePipeline]. Null when face tracking off. */
-    val face:            com.arhand.tracking.FaceExpressions?,
+    /** Face expression intensities from [com.neardimension.handy.tracking.FacePipeline]. Null when face tracking off. */
+    val face:            com.neardimension.handy.tracking.FaceExpressions?,
     /** Mean tracking confidence across all active pipelines (0–1). */
     val frameConfidence: Float,
 

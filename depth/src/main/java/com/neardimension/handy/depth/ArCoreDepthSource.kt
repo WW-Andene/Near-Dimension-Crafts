@@ -1,9 +1,9 @@
-package com.arhand.depth
+package com.neardimension.handy.depth
 
 import android.content.Context
 import android.media.Image
 import android.opengl.GLSurfaceView
-import com.arhand.util.Vec3
+import com.neardimension.handy.util.Vec3
 import com.google.ar.core.*
 import com.google.ar.core.exceptions.NotYetAvailableException
 import com.google.ar.core.exceptions.SessionPausedException
@@ -95,7 +95,7 @@ class ArCoreDepthSource(private val context: Context) : DepthSource {
      * [callback] bookkeeping, so [resumeCameraHold] can cleanly pick back up — unlike
      * [stop], which is a full lifecycle stop. This Session always targets the rear-facing
      * camera via its own independent Camera2 handle (no ARCore Shared-Camera integration
-     * here), so it cannot be open at the same time [com.arhand.camera.CameraController]
+     * here), so it cannot be open at the same time [com.neardimension.handy.camera.CameraController]
      * also holds the rear camera — call this before that happens (ENGINE_ARCHITECTURE.md
      * §4.9), then [resumeCameraHold] once the rear camera is free again.
      */

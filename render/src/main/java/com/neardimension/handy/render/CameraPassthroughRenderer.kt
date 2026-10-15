@@ -1,4 +1,4 @@
-package com.arhand.render
+package com.neardimension.handy.render
 
 import android.graphics.Bitmap
 import android.opengl.GLES30

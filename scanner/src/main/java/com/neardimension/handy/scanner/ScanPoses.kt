@@ -1,4 +1,4 @@
-package com.arhand.scanner
+package com.neardimension.handy.scanner
 
 /**
  * 8 scan poses — direct port of SCANNER.POSES from the HTML prototype.

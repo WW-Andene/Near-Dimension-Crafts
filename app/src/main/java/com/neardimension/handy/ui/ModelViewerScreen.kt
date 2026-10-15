@@ -1,4 +1,4 @@
-package com.arhand.ui
+package com.neardimension.handy.ui
 
 import android.opengl.GLSurfaceView
 import android.view.MotionEvent
@@ -18,7 +18,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import com.arhand.render.ModelViewerRenderer
+import com.neardimension.handy.render.ModelViewerRenderer
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
@@ -38,10 +38,10 @@ fun ModelViewerScreen(
     meshPositions: FloatArray,
     onDismiss: () -> Unit,
     /** ARCH-3 — Live retarget result from the tracking pipeline. Null = static mesh display. */
-    retargetResult: com.arhand.mocap.RetargetResult? = null,
+    retargetResult: com.neardimension.handy.mocap.RetargetResult? = null,
     /** ARCH-3 — Loaded skinned asset. When both this and [retargetResult] are non-null,
      *  the viewer drives the character skeleton in real time. */
-    loadedAsset: com.arhand.mocap.LoadedAsset? = null
+    loadedAsset: com.neardimension.handy.mocap.LoadedAsset? = null
 ) {
     val viewerRenderer = remember { ModelViewerRenderer() }
     // Captured from the factory below so the DisposableEffect can release GL resources on

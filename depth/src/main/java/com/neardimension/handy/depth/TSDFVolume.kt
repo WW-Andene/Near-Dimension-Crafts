@@ -1,13 +1,13 @@
-package com.arhand.depth
+package com.neardimension.handy.depth
 
-import com.arhand.util.Vec3
+import com.neardimension.handy.util.Vec3
 import kotlin.math.abs
 import kotlin.math.sqrt
 
 /**
  * HAND-8 — Truncated Signed Distance Function (TSDF) voxel volume.
  *
- * Replaces [com.arhand.util.PointCloudStore]'s raw point accumulation with a
+ * Replaces [com.neardimension.handy.util.PointCloudStore]'s raw point accumulation with a
  * surface-aware volumetric representation. Each voxel stores a weighted average
  * of signed depth values — negative inside the hand, positive outside —
  * which can be meshed at any resolution via marching cubes.
@@ -122,7 +122,7 @@ class TSDFVolume(
 
     /**
      * Sample surface points from the TSDF zero-crossing for use by
-     * [com.arhand.render.PointCloudRenderer] (visual display only).
+     * [com.neardimension.handy.render.PointCloudRenderer] (visual display only).
      *
      * Returns at most [maxPoints] points sampled at [stride] voxel intervals.
      */

@@ -1,4 +1,4 @@
-package com.arhand.ui
+package com.neardimension.handy.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
@@ -21,10 +21,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.arhand.scanner.BiometricHistoryEntry
-import com.arhand.scanner.HandBiometrics
-import com.arhand.scanner.JointRomData
-import com.arhand.scanner.JointRom
+import com.neardimension.handy.scanner.BiometricHistoryEntry
+import com.neardimension.handy.scanner.HandBiometrics
+import com.neardimension.handy.scanner.JointRomData
+import com.neardimension.handy.scanner.JointRom
 import kotlin.math.PI
 import kotlin.math.roundToInt
 
@@ -50,9 +50,9 @@ fun ScanResultModal(
     /** GAP-5 — Trigger credit-card calibration flow. Null if calibration not available. */
     onCalibrate: (() -> Unit)? = null,
     /** ARCH-3 — Live retarget result forwarded to [ModelViewerScreen]. */
-    retargetResult: com.arhand.mocap.RetargetResult? = null,
+    retargetResult: com.neardimension.handy.mocap.RetargetResult? = null,
     /** ARCH-3 — Loaded skinned asset forwarded to [ModelViewerScreen]. */
-    loadedAsset: com.arhand.mocap.LoadedAsset? = null
+    loadedAsset: com.neardimension.handy.mocap.LoadedAsset? = null
 ) {
     var showViewer by remember { mutableStateOf(false) }
 

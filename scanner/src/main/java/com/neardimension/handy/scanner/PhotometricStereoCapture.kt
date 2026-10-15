@@ -1,4 +1,4 @@
-package com.arhand.scanner
+package com.neardimension.handy.scanner
 
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -15,7 +15,7 @@ import kotlin.math.sqrt
  * The resulting per-pixel normal map (stored as a flat FloatArray of xyz
  * triplets, normalised to unit length) captures high-frequency surface detail
  * — wrinkles, knuckle creases, vein topology — that the capsule-SDF
- * [com.arhand.depth.DepthCarver] cannot represent.
+ * [com.neardimension.handy.depth.DepthCarver] cannot represent.
  *
  * ## Torch-interleaving contract
  *
@@ -91,7 +91,7 @@ class PhotometricStereoCapture {
 
     /**
      * Start accumulation. Clears any previously accumulated data.
-     * The torch is not driven here — the [com.arhand.ui.AppViewModel] drives it
+     * The torch is not driven here — the [com.neardimension.handy.ui.AppViewModel] drives it
      * on the camera thread before each submitted frame.
      */
     fun start() {
@@ -275,7 +275,7 @@ class PhotometricNormalMap(
     val data:   FloatArray,
     override val width:  Int,
     override val height: Int
-) : com.arhand.util.NormalMap {
+) : com.neardimension.handy.util.NormalMap {
     override val isEmpty: Boolean get() = data.isEmpty()
 
     /** Number of pixels in the map (width × height). */

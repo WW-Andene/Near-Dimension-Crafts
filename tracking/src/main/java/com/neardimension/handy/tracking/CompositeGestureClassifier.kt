@@ -1,6 +1,6 @@
-package com.arhand.tracking
+package com.neardimension.handy.tracking
 
-import com.arhand.tracking.HandSide
+import com.neardimension.handy.tracking.HandSide
 
 /**
  * IMP-12 — Composite gesture classifier: hand gesture × face modifier.

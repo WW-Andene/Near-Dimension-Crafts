@@ -1,4 +1,4 @@
-package com.arhand.camera
+package com.neardimension.handy.camera
 
 import android.annotation.SuppressLint
 import android.content.Context

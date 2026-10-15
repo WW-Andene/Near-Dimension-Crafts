@@ -1,8 +1,8 @@
-package com.arhand.depth
+package com.neardimension.handy.depth
 
 import android.content.Context
-import com.arhand.camera.GrayscaleCamera
-import com.arhand.util.OneEuroFilter3
+import com.neardimension.handy.camera.GrayscaleCamera
+import com.neardimension.handy.util.OneEuroFilter3
 import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.min
@@ -60,14 +60,14 @@ class SfMDepthSource(private val context: Context) : DepthSource {
     private val camera = GrayscaleCamera(context)
 
     // Shim support — when attached, frames come from BitmapGrayscaleShim instead of GrayscaleCamera
-    private var shim: com.arhand.camera.BitmapGrayscaleShim? = null
+    private var shim: com.neardimension.handy.camera.BitmapGrayscaleShim? = null
 
     /**
      * Attach a [BitmapGrayscaleShim] so this source consumes Handy's existing
-     * [com.arhand.camera.CameraFrameProvider] Bitmap stream instead of opening its
+     * [com.neardimension.handy.camera.CameraFrameProvider] Bitmap stream instead of opening its
      * own [GrayscaleCamera] session. Must be called before [start].
      */
-    fun attachShim(s: com.arhand.camera.BitmapGrayscaleShim) { shim = s }
+    fun attachShim(s: com.neardimension.handy.camera.BitmapGrayscaleShim) { shim = s }
 
     // Ring buffer of anchor frames
     private data class AnchorFrame(

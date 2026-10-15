@@ -1,6 +1,6 @@
-package com.arhand.depth
+package com.neardimension.handy.depth
 
-import com.arhand.util.Vec3
+import com.neardimension.handy.util.Vec3
 import kotlin.math.*
 
 /**
@@ -485,7 +485,7 @@ class NeuralImplicitCarver {
     fun train(
         frames:    List<Pair<List<Vec3>, Float>>,
         epochs:    Int = DEFAULT_EPOCHS,
-        normalMap: com.arhand.util.NormalMap? = null
+        normalMap: com.neardimension.handy.util.NormalMap? = null
     ) {
         initWeights()
         isTrained = false
@@ -618,7 +618,7 @@ class NeuralImplicitCarver {
     fun trainIncremental(
         newFrames: List<Pair<List<Vec3>, Float>>,
         epochs:    Int = INCREMENTAL_EPOCHS,
-        normalMap: com.arhand.util.NormalMap? = null
+        normalMap: com.neardimension.handy.util.NormalMap? = null
     ) {
         if (newFrames.isEmpty()) return
 

@@ -1,15 +1,15 @@
-package com.arhand.tracking
+package com.neardimension.handy.tracking
 
-import com.arhand.util.Vec3
-import com.arhand.util.VIEW_SCALE
+import com.neardimension.handy.util.Vec3
+import com.neardimension.handy.util.VIEW_SCALE
 import kotlin.math.sqrt
 
 /**
  * Landmark utility functions — extracted from util/MathUtils.kt to fix the
  * inverted dependency (util must not import tracking).
  *
- * Callers that previously used `com.arhand.util.lmDist` etc. now import from
- * `com.arhand.tracking.LandmarkUtils` (or use the package-level functions here).
+ * Callers that previously used `com.neardimension.handy.util.lmDist` etc. now import from
+ * `com.neardimension.handy.tracking.LandmarkUtils` (or use the package-level functions here).
  */
 
 /** Distance between two landmarks in 3D space. */

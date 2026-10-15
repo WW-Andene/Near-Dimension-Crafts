@@ -1,7 +1,7 @@
-package com.arhand.feature.scan
+package com.neardimension.handy.feature.scan
 
-import com.arhand.scanner.HandBiometrics
-import com.arhand.scanner.JointRomData
+import com.neardimension.handy.scanner.HandBiometrics
+import com.neardimension.handy.scanner.JointRomData
 
 /**
  * Which scan mode is currently running: nothing, a posed scan, or a freeform scan.
@@ -13,7 +13,7 @@ import com.arhand.scanner.JointRomData
  * bugs: `SpatialFrameRouter`'s posed-scan capture branch was dead code because nothing ever set
  * `isScanActive` for a posed scan (ENGINE_ARCHITECTURE.md §10.3), and the freeform-scan `FAILED`
  * watcher only reset 2 of the 4 flags, leaving the router still thinking a freeform scan was
- * active after it had already failed. `com.arhand.ui.AppViewModel.setScanLifecycle` is now the
+ * active after it had already failed. `com.neardimension.handy.ui.AppViewModel.setScanLifecycle` is now the
  * single place that sets all four from one [ScanLifecycle] value, so a call site can no longer
  * forget one of them.
  */
@@ -26,7 +26,7 @@ sealed class ScanLifecycle {
 /**
  * Immutable state snapshot for the scan feature.
  *
- * Collected independently by consumers such as [com.arhand.ui.ScanResultModal] —
+ * Collected independently by consumers such as [com.neardimension.handy.ui.ScanResultModal] —
  * changes here don't recompose unrelated screens.
  */
 data class ScanState(
@@ -34,14 +34,14 @@ data class ScanState(
     val hasStoredModel:        Boolean                  = false,
     /**
      * Monotonically incremented only when a freeform scan *successfully* produces a
-     * model (never touched by cancel/failure). [com.arhand.ui.MainActivity]'s result-modal
+     * model (never touched by cancel/failure). [com.neardimension.handy.ui.MainActivity]'s result-modal
      * trigger keys off a change in this id instead of the ambient [hasStoredModel] flag,
      * so a cancelled/failed scan after an earlier successful one can't re-show the modal.
      */
     val completedScanId:       Int                      = 0,
     val exportedGlbPath:       String?                  = null,
     val handBiometrics:        HandBiometrics?          = null,
-    val biometricHistory:      List<com.arhand.scanner.BiometricHistoryEntry> = emptyList(),
+    val biometricHistory:      List<com.neardimension.handy.scanner.BiometricHistoryEntry> = emptyList(),
     val jointRomData:          JointRomData?            = null,
     val neuralReconEnabled:    Boolean                  = false,
     val neuralReconDiagnostics: NeuralReconDiagnostics? = null,
@@ -51,11 +51,11 @@ data class ScanState(
     val arcoreDepthHw:         Boolean                  = false,
     /**
      * LIMIT-2 — True while a freeform (continuous) scan is accumulating frames.
-     * Set only via [com.arhand.ui.AppViewModel.setScanLifecycle] — see [ScanLifecycle].
+     * Set only via [com.neardimension.handy.ui.AppViewModel.setScanLifecycle] — see [ScanLifecycle].
      */
     val freeformActive:        Boolean                  = false,
-    /** LIMIT-2 — Latest status from [com.arhand.scanner.FreeformScanner]. */
-    val freeformStatus:        com.arhand.scanner.FreeformScanner.FreeformStatus? = null,
+    /** LIMIT-2 — Latest status from [com.neardimension.handy.scanner.FreeformScanner]. */
+    val freeformStatus:        com.neardimension.handy.scanner.FreeformScanner.FreeformStatus? = null,
     /** GAP-5 — True while the calibration card flow is active. */
     val calibrationCardActive: Boolean                  = false,
 

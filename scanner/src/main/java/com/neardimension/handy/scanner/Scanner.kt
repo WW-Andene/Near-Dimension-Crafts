@@ -1,9 +1,9 @@
-package com.arhand.scanner
+package com.neardimension.handy.scanner
 
-import com.arhand.tracking.FaceExpressions
-import com.arhand.tracking.HandLandmarks
-import com.arhand.tracking.landmarkToWorld
-import com.arhand.util.Vec3
+import com.neardimension.handy.tracking.FaceExpressions
+import com.neardimension.handy.tracking.HandLandmarks
+import com.neardimension.handy.tracking.landmarkToWorld
+import com.neardimension.handy.util.Vec3
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -53,7 +53,7 @@ class Scanner {
 
     /**
      * HAND-6 — Emits the completed pose index (0-based) each time a pose is successfully
-     * captured. Collected by [com.arhand.ui.AppViewModel] to trigger incremental
+     * captured. Collected by [com.neardimension.handy.ui.AppViewModel] to trigger incremental
      * [NeuralImplicitCarver.trainIncremental] passes during the scan.
      *
      * Uses replay=0 so late collectors don't receive stale completions from a previous scan.
@@ -157,16 +157,16 @@ class Scanner {
         mirrorX:        Boolean = false,
         faceExpressions: FaceExpressions? = null,
         /**
-         * BODY-5 — Optional body pose landmarks from [com.arhand.tracking.BodyPipeline].
+         * BODY-5 — Optional body pose landmarks from [com.neardimension.handy.tracking.BodyPipeline].
          * When provided, a body stability gate rejects frames where the wrist or shoulder
          * position has drifted beyond [BODY_DRIFT_THRESH] from the pose reference position.
          */
-        bodyLandmarks: com.arhand.tracking.PoseLandmarks? = null,
+        bodyLandmarks: com.neardimension.handy.tracking.PoseLandmarks? = null,
         /**
          * Real camera capture aspect ratio (bitmap width/height), distinct from [aspect]
          * (the screen/UI aspect) — needed by [capturePosePoints]'s interpolated points,
          * which have no MediaPipe world coordinates of their own and so always fall through
-         * to [com.arhand.tracking.landmarkToWorld]'s screen-space reconstruction path.
+         * to [com.neardimension.handy.tracking.landmarkToWorld]'s screen-space reconstruction path.
          * Defaults to [aspect] only when the real camera aspect isn't known yet.
          */
         camAspect: Float = aspect
@@ -247,7 +247,7 @@ class Scanner {
         aspect: Float,
         mirrorX: Boolean,
         faceExpressions: FaceExpressions? = null,
-        bodyLandmarks: com.arhand.tracking.PoseLandmarks? = null,
+        bodyLandmarks: com.neardimension.handy.tracking.PoseLandmarks? = null,
         camAspect: Float = aspect
     ) {
         if (lms == null) {
@@ -279,8 +279,8 @@ class Scanner {
         // On first accepted frame per pose: record reference wrist position.
         // On subsequent frames: reject if wrist has drifted > BODY_DRIFT_THRESH.
         var bodyStable = true
-        if (bodyLandmarks != null && bodyLandmarks.size > com.arhand.tracking.PL.LEFT_WRIST) {
-            val wristLm = bodyLandmarks[com.arhand.tracking.PL.LEFT_WRIST]
+        if (bodyLandmarks != null && bodyLandmarks.size > com.neardimension.handy.tracking.PL.LEFT_WRIST) {
+            val wristLm = bodyLandmarks[com.neardimension.handy.tracking.PL.LEFT_WRIST]
             val wristX  = wristLm.x
             val wristY  = wristLm.y
             if (!bodyRefSet) {
@@ -381,7 +381,7 @@ class Scanner {
             listOf(FrameCandidate(lms, qualityScore))
         }
 
-        val pairs = com.arhand.tracking.CONNECTIONS
+        val pairs = com.neardimension.handy.tracking.CONNECTIONS
         for (candidate in candidates) {
             for ((a, b) in pairs) {
                 if (a >= candidate.lms.size || b >= candidate.lms.size) continue
@@ -392,7 +392,7 @@ class Scanner {
                     val y = pA.y + (pB.y - pA.y) * tv
                     val z = pA.z + (pB.z - pA.z) * tv
                     val (wx, wy, wz) = landmarkToWorld(
-                        com.arhand.tracking.Landmark(x, y, z), aspect, mirrorX = mirrorX, camAspect = camAspect
+                        com.neardimension.handy.tracking.Landmark(x, y, z), aspect, mirrorX = mirrorX, camAspect = camAspect
                     )
                     cloudPoints.add(Vec3(wx, wy, wz))
                 }

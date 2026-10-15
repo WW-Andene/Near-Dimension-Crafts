@@ -1,4 +1,4 @@
-package com.arhand.ui
+package com.neardimension.handy.ui
 
 import android.app.Application
 import android.content.Context
@@ -8,52 +8,52 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.camera.core.CameraSelector
 import androidx.lifecycle.LifecycleOwner
-import com.arhand.camera.CameraController
-import com.arhand.camera.CameraFrameProvider
-import com.arhand.camera.BitmapGrayscaleShim
-import com.arhand.depth.ArDepthAvailability
-import com.arhand.depth.DepthSourceCallback
-import com.arhand.depth.DepthApiCarver
-import com.arhand.depth.HandSegmentationMask
-import com.arhand.depth.NeuralImplicitCarver
-import com.arhand.depth.ManoShapeFitter
-import com.arhand.depth.fusion.FusedDepthSource
-import com.arhand.export.GLBExporter
-import com.arhand.export.PointCloudExporter
-import com.arhand.render.ARRenderer
-import com.arhand.render.RenderMode
-import com.arhand.scanner.CLAHEAnalyzer
-import com.arhand.scanner.PersonalModelStore
-import com.arhand.scanner.Scanner
-import com.arhand.scanner.PhotometricStereoCapture
-import com.arhand.mocap.AssetLoader
-import com.arhand.mocap.BoneRetargeter
-import com.arhand.mocap.BodyRetargeter
-import com.arhand.mocap.BodyRetargetResult
-import com.arhand.mocap.FullBodyRetargetResult
-import com.arhand.mocap.LoadedAsset
-import com.arhand.mocap.MotionRecorder
-import com.arhand.mocap.OscStreamer
-import com.arhand.mocap.OscSchema
-import com.arhand.mocap.OscMode
-import com.arhand.mocap.OscReceiver
-import com.arhand.mocap.QuaternionEmaFilter
-import com.arhand.mocap.RetargetResult
-import com.arhand.tracking.HandPipeline
-import com.arhand.tracking.HandTrackerManager
-import com.arhand.tracking.HandTracker
-import com.arhand.tracking.HandLandmarks
-import com.arhand.tracking.BodyPipeline
-import com.arhand.tracking.FaceLandmarks
-import com.arhand.tracking.FacePipeline
-import com.arhand.tracking.PoseLandmarks
-import com.arhand.tracking.FullBodyFrame
-import com.arhand.tracking.CompositeGestureClassifier
-import com.arhand.tracking.Gesture
-import com.arhand.util.FrameThrottler
-import com.arhand.util.ModelBudgetManager
-import com.arhand.util.PerfMonitor
-import com.arhand.util.Vec3
+import com.neardimension.handy.camera.CameraController
+import com.neardimension.handy.camera.CameraFrameProvider
+import com.neardimension.handy.camera.BitmapGrayscaleShim
+import com.neardimension.handy.depth.ArDepthAvailability
+import com.neardimension.handy.depth.DepthSourceCallback
+import com.neardimension.handy.depth.DepthApiCarver
+import com.neardimension.handy.depth.HandSegmentationMask
+import com.neardimension.handy.depth.NeuralImplicitCarver
+import com.neardimension.handy.depth.ManoShapeFitter
+import com.neardimension.handy.depth.fusion.FusedDepthSource
+import com.neardimension.handy.export.GLBExporter
+import com.neardimension.handy.export.PointCloudExporter
+import com.neardimension.handy.render.ARRenderer
+import com.neardimension.handy.render.RenderMode
+import com.neardimension.handy.scanner.CLAHEAnalyzer
+import com.neardimension.handy.scanner.PersonalModelStore
+import com.neardimension.handy.scanner.Scanner
+import com.neardimension.handy.scanner.PhotometricStereoCapture
+import com.neardimension.handy.mocap.AssetLoader
+import com.neardimension.handy.mocap.BoneRetargeter
+import com.neardimension.handy.mocap.BodyRetargeter
+import com.neardimension.handy.mocap.BodyRetargetResult
+import com.neardimension.handy.mocap.FullBodyRetargetResult
+import com.neardimension.handy.mocap.LoadedAsset
+import com.neardimension.handy.mocap.MotionRecorder
+import com.neardimension.handy.mocap.OscStreamer
+import com.neardimension.handy.mocap.OscSchema
+import com.neardimension.handy.mocap.OscMode
+import com.neardimension.handy.mocap.OscReceiver
+import com.neardimension.handy.mocap.QuaternionEmaFilter
+import com.neardimension.handy.mocap.RetargetResult
+import com.neardimension.handy.tracking.HandPipeline
+import com.neardimension.handy.tracking.HandTrackerManager
+import com.neardimension.handy.tracking.HandTracker
+import com.neardimension.handy.tracking.HandLandmarks
+import com.neardimension.handy.tracking.BodyPipeline
+import com.neardimension.handy.tracking.FaceLandmarks
+import com.neardimension.handy.tracking.FacePipeline
+import com.neardimension.handy.tracking.PoseLandmarks
+import com.neardimension.handy.tracking.FullBodyFrame
+import com.neardimension.handy.tracking.CompositeGestureClassifier
+import com.neardimension.handy.tracking.Gesture
+import com.neardimension.handy.util.FrameThrottler
+import com.neardimension.handy.util.ModelBudgetManager
+import com.neardimension.handy.util.PerfMonitor
+import com.neardimension.handy.util.Vec3
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -65,10 +65,10 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
-import com.arhand.scanner.HandBiometrics
-import com.arhand.render.LiveMeshDeformer
-import com.arhand.feature.record.TakeEntry
-import com.arhand.feature.scan.NeuralReconDiagnostics
+import com.neardimension.handy.scanner.HandBiometrics
+import com.neardimension.handy.render.LiveMeshDeformer
+import com.neardimension.handy.feature.record.TakeEntry
+import com.neardimension.handy.feature.scan.NeuralReconDiagnostics
 
 /**
  * Gap 5 — A single completed recording take.
@@ -100,7 +100,7 @@ data class AppUiState(
     val cameraPermissionDenied: Boolean = false,
     /**
      * Monotonically-incrementing token bumped once per accepted pose capture — see
-     * [com.arhand.ui.WhiteScreenOverlay] (ENGINE_ARCHITECTURE.md §6.2). A plain Boolean
+     * [com.neardimension.handy.ui.WhiteScreenOverlay] (ENGINE_ARCHITECTURE.md §6.2). A plain Boolean
      * can't signal "fire again" for two captures in a row; each new value fires exactly
      * one flash regardless of whether the previous one finished animating.
      */
@@ -119,11 +119,11 @@ private val Context.oefDataStore: DataStore<Preferences>
  * Application-level coordinator — owns the sensing pipeline, scan lifecycle, and UI state.
  *
  * Constructs and wires together [spatialLayer] (Core: ARCore/SfM/Photometric/SLAM/DA2),
- * `producer` ([com.arhand.feature.spatial.SpatialFrameProducer], the camera loop and MediaPipe
- * tracking pipelines), `router` ([com.arhand.feature.spatial.SpatialFrameRouter], which
+ * `producer` ([com.neardimension.handy.feature.spatial.SpatialFrameProducer], the camera loop and MediaPipe
+ * tracking pipelines), `router` ([com.neardimension.handy.feature.spatial.SpatialFrameRouter], which
  * distributes assembled frames to the renderer/OSC/BVH/scanner), `scanCoordinator`
- * ([com.arhand.feature.scan.ScanCoordinator], posed/freeform scan lifecycle), and `renderer`
- * ([com.arhand.render.ARRenderer]) — then exposes [uiState] plus feature-toggle/action methods
+ * ([com.neardimension.handy.feature.scan.ScanCoordinator], posed/freeform scan lifecycle), and `renderer`
+ * ([com.neardimension.handy.render.ARRenderer]) — then exposes [uiState] plus feature-toggle/action methods
  * (`toggleTorch`, `switchCamera`, `startScan`, etc.) as the single surface Compose UI reads from
  * and calls into.
  *
@@ -157,26 +157,26 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val perfMonitor    = PerfMonitor()
     val handPipeline   = HandPipeline()
     val scanner        = Scanner()
-    val freeformScanner = com.arhand.scanner.FreeformScanner()
+    val freeformScanner = com.neardimension.handy.scanner.FreeformScanner()
     val clahe          = CLAHEAnalyzer()
-    val frameThrottler = com.arhand.util.FrameThrottler()
+    val frameThrottler = com.neardimension.handy.util.FrameThrottler()
     val bodyPipeline   = BodyPipeline()
     val facePipeline   = FacePipeline()
     val bodyRetargeter = BodyRetargeter   // stateless object — see its class doc
-    val spatialLayer   = com.arhand.depth.SpatialLayer(getApplication())
-    val slDepthSource  = com.arhand.depth.StructuredLightDepthSource()
+    val spatialLayer   = com.neardimension.handy.depth.SpatialLayer(getApplication())
+    val slDepthSource  = com.neardimension.handy.depth.StructuredLightDepthSource()
 
     val motionRecorder = MotionRecorder()
     val oscStreamer = OscStreamer()
 
     // ── Feature managers ──────────────────────────────────────────────────────
-    val trackingManager  = com.arhand.feature.tracking.TrackingManager()
-    val oscManager       = com.arhand.feature.stream.OscManager(getApplication(), oscStreamer, viewModelScope)
-    val recordingManager = com.arhand.feature.record.RecordingManager(getApplication(), motionRecorder, viewModelScope)
-    val assetManager     = com.arhand.feature.asset.AssetManager(getApplication(), viewModelScope)
-    val scanState        = MutableStateFlow(com.arhand.feature.scan.ScanState())
+    val trackingManager  = com.neardimension.handy.feature.tracking.TrackingManager()
+    val oscManager       = com.neardimension.handy.feature.stream.OscManager(getApplication(), oscStreamer, viewModelScope)
+    val recordingManager = com.neardimension.handy.feature.record.RecordingManager(getApplication(), motionRecorder, viewModelScope)
+    val assetManager     = com.neardimension.handy.feature.asset.AssetManager(getApplication(), viewModelScope)
+    val scanState        = MutableStateFlow(com.neardimension.handy.feature.scan.ScanState())
     val oscHealth        = oscStreamer.health
-    val oscDiscovery     = com.arhand.feature.stream.OscDiscovery(getApplication())
+    val oscDiscovery     = com.neardimension.handy.feature.stream.OscDiscovery(getApplication())
 
     val modelStore       = PersonalModelStore(app)
     val photoStereoCapture = PhotometricStereoCapture()
@@ -186,7 +186,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     lateinit var cameraController: CameraController
 
     // ── SpatialFrameProducer — owns camera loop and sensing ───────────────────
-    val producer = com.arhand.feature.spatial.SpatialFrameProducer(
+    val producer = com.neardimension.handy.feature.spatial.SpatialFrameProducer(
         app            = getApplication(),
         scope          = viewModelScope,
         spatialLayer   = spatialLayer,
@@ -198,13 +198,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         frameThrottler = frameThrottler,
         clahe          = clahe,
         modelBudget    = ModelBudgetManager(),
-        depthBudget    = com.arhand.util.DepthChannelBudget(),
+        depthBudget    = com.neardimension.handy.util.DepthChannelBudget(),
         perfMonitor    = perfMonitor
     )
 
-    private val tsdfVolume = com.arhand.depth.TSDFVolume()
+    private val tsdfVolume = com.neardimension.handy.depth.TSDFVolume()
     // ── SpatialFrameRouter — distributes frames to all consumers ─────────────
-    val router = com.arhand.feature.spatial.SpatialFrameRouter(
+    val router = com.neardimension.handy.feature.spatial.SpatialFrameRouter(
         scope               = viewModelScope,
         oscStreamer         = oscStreamer,
         motionRecorder      = motionRecorder,
@@ -487,10 +487,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                                     if (needed >= 4) {
                                         val buf = FloatArray(needed)
                                         store.snapshot(buf)
-                                        val cloud = ArrayList<com.arhand.util.Vec3>(needed / 4)
+                                        val cloud = ArrayList<com.neardimension.handy.util.Vec3>(needed / 4)
                                         var bi = 0
                                         while (bi + 3 < needed) {
-                                            cloud.add(com.arhand.util.Vec3(buf[bi], buf[bi+1], buf[bi+2]))
+                                            cloud.add(com.neardimension.handy.util.Vec3(buf[bi], buf[bi+1], buf[bi+2]))
                                             bi += 4
                                         }
                                         // ENGINE_ARCHITECTURE.md §4.11 — hull built from real
@@ -508,7 +508,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                                         // HAND-8 — Integrate into TSDF volume for surface-aware reconstruction
                                         val depthConf = (store.pointCount / 10000f).coerceIn(0.3f, 1f)
                                         val camPos = spatialLayer.state.value.let {
-                                            com.arhand.util.Vec3(it.cameraWorldX, it.cameraWorldY, it.cameraWorldZ)
+                                            com.neardimension.handy.util.Vec3(it.cameraWorldX, it.cameraWorldY, it.cameraWorldZ)
                                         }
                                         tsdfVolume.integrate(masked, depthConf, camPos)
                                     }
@@ -533,10 +533,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                                     if (needed >= 4) {
                                         val buf = FloatArray(needed)
                                         store.snapshot(buf)
-                                        val cloud = ArrayList<com.arhand.util.Vec3>(needed / 4)
+                                        val cloud = ArrayList<com.neardimension.handy.util.Vec3>(needed / 4)
                                         var bi = 0
                                         while (bi + 3 < needed) {
-                                            cloud.add(com.arhand.util.Vec3(buf[bi], buf[bi+1], buf[bi+2]))
+                                            cloud.add(com.neardimension.handy.util.Vec3(buf[bi], buf[bi+1], buf[bi+2]))
                                             bi += 4
                                         }
                                         // ENGINE_ARCHITECTURE.md §4.11 — hull built from real
@@ -553,7 +553,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                                         capturedDepthFrames.add(masked)
                                         val depthConf = (store.pointCount / 10000f).coerceIn(0.3f, 1f)
                                         val camPos = spatialLayer.state.value.let {
-                                            com.arhand.util.Vec3(it.cameraWorldX, it.cameraWorldY, it.cameraWorldZ)
+                                            com.neardimension.handy.util.Vec3(it.cameraWorldX, it.cameraWorldY, it.cameraWorldZ)
                                         }
                                         tsdfVolume.integrate(masked, depthConf, camPos)
                                     }
@@ -728,7 +728,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      *
      * When enabled, the scan will alternate torch ON/OFF every frame during
      * CAPTURING, submit frames to [PhotometricStereoCapture], and produce a
-     * [com.arhand.scanner.PhotometricNormalMap] stored in [photoStereoNormalMap]
+     * [com.neardimension.handy.scanner.PhotometricNormalMap] stored in [photoStereoNormalMap]
      * once [PhotometricStereoCapture.TARGET_PAIRS] pairs are accumulated.
      *
      * Note: requires rear camera (torch unavailable on front camera). When the
@@ -740,14 +740,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** G5 — Most recent photometric normal map. Null until the first stereo-enabled scan. */
-    val photoStereoNormalMap: MutableStateFlow<com.arhand.scanner.PhotometricNormalMap?> =
+    val photoStereoNormalMap: MutableStateFlow<com.neardimension.handy.scanner.PhotometricNormalMap?> =
         MutableStateFlow(null)
 
     // ── ScanCoordinator — owns posed/freeform scan lifecycle orchestration ────
     // (REDESIGN_PLAN.md Phase 8, item 5). Declared after every collaborator it takes by
     // reference, since a class property's initializer runs at the point of its own
     // declaration — placing this earlier would pass still-uninitialized properties in.
-    val scanCoordinator = com.arhand.feature.scan.ScanCoordinator(
+    val scanCoordinator = com.neardimension.handy.feature.scan.ScanCoordinator(
         scope                = viewModelScope,
         app                  = getApplication(),
         uiState              = uiState,
@@ -865,7 +865,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /**
      * Toggle accumulating a persistent, spatially-deduplicated room-scale point map
-     * (see [com.arhand.depth.SpatialLayer.voxelGrid]'s class doc) — distinct from
+     * (see [com.neardimension.handy.depth.SpatialLayer.voxelGrid]'s class doc) — distinct from
      * [toggleDepth]'s scan-reconstruction sources and from the live scan buffer.
      * Off by default; toggling off does not clear already-accumulated points, so
      * re-enabling continues the same map — call [clearRoomMap] to start over.
@@ -946,7 +946,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         viewModelScope.launch(Dispatchers.Default) {
             runCatching {
-                val (cutoff, beta) = com.arhand.feature.scan.calibrateOef(frames) ?: return@launch
+                val (cutoff, beta) = com.neardimension.handy.feature.scan.calibrateOef(frames) ?: return@launch
                 handPipeline.setOefParams(cutoff, beta)
                 getApplication<android.app.Application>().oefDataStore.edit { prefs ->
                     prefs[KEY_OEF_CUTOFF] = cutoff
@@ -1035,12 +1035,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun stopRecordingAndExport() {
         router.isRecording = false
-        val scannedOffsets: Map<Int, com.arhand.util.Vec3>? = scanCoordinator.restJointPositions?.let { rjp ->
+        val scannedOffsets: Map<Int, com.neardimension.handy.util.Vec3>? = scanCoordinator.restJointPositions?.let { rjp ->
             buildMap {
                 for (jointIdx in 0 until BoneRetargeter.JOINT_COUNT) {
                     val base = jointIdx * 3
                     if (base + 2 < rjp.size)
-                        put(jointIdx, com.arhand.util.Vec3(rjp[base], rjp[base + 1], rjp[base + 2]))
+                        put(jointIdx, com.neardimension.handy.util.Vec3(rjp[base], rjp[base + 1], rjp[base + 2]))
                 }
             }
         }

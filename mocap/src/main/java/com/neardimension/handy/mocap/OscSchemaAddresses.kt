@@ -1,4 +1,4 @@
-package com.arhand.mocap
+package com.neardimension.handy.mocap
 
 import java.nio.charset.StandardCharsets
 

@@ -1,4 +1,4 @@
-package com.arhand.ui
+package com.neardimension.handy.ui
 
 /**
  * Controls which panel (if any) is shown above the bottom toolbar.

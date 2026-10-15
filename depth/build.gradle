@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace 'com.arhand.depth'
+    namespace 'com.neardimension.handy.depth'
 }
 
 dependencies {

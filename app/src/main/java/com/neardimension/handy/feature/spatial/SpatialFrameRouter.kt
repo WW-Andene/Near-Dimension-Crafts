@@ -1,16 +1,16 @@
-package com.arhand.feature.spatial
+package com.neardimension.handy.feature.spatial
 
-import com.arhand.mocap.MotionRecorder
-import com.arhand.mocap.OscStreamer
-import com.arhand.mocap.FullBodyRetargetResult
-import com.arhand.mocap.VrmBlendShapeParser
-import com.arhand.render.ARRenderer
-import com.arhand.scanner.FreeformScanner
-import com.arhand.scanner.Scanner
-import com.arhand.depth.DepthCarver
-import com.arhand.depth.HandSegmentationMask
-import com.arhand.depth.TSDFVolume
-import com.arhand.util.Vec3
+import com.neardimension.handy.mocap.MotionRecorder
+import com.neardimension.handy.mocap.OscStreamer
+import com.neardimension.handy.mocap.FullBodyRetargetResult
+import com.neardimension.handy.mocap.VrmBlendShapeParser
+import com.neardimension.handy.render.ARRenderer
+import com.neardimension.handy.scanner.FreeformScanner
+import com.neardimension.handy.scanner.Scanner
+import com.neardimension.handy.depth.DepthCarver
+import com.neardimension.handy.depth.HandSegmentationMask
+import com.neardimension.handy.depth.TSDFVolume
+import com.neardimension.handy.util.Vec3
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -62,7 +62,7 @@ class SpatialFrameRouter(
     // ── Callbacks from AppViewModel ───────────────────────────────────────────
 
     /** Called when AppViewModel needs to know the latest retarget result (for ScanResultModal). */
-    var onRetargetResult: ((com.arhand.mocap.RetargetResult) -> Unit)? = null
+    var onRetargetResult: ((com.neardimension.handy.mocap.RetargetResult) -> Unit)? = null
 
     /** Called each frame with the assembled FullBodyRetargetResult. */
     var onFullFrame: ((FullBodyRetargetResult) -> Unit)? = null
@@ -84,11 +84,11 @@ class SpatialFrameRouter(
     @Volatile var claheContrast:     Float   = 1f
 
     // Loaded asset for morph weights
-    var loadedAsset: com.arhand.mocap.LoadedAsset = com.arhand.mocap.AssetLoader.DEFAULT_PUPPET
+    var loadedAsset: com.neardimension.handy.mocap.LoadedAsset = com.neardimension.handy.mocap.AssetLoader.DEFAULT_PUPPET
 
     // Scan accumulation buffers (written here, read by AppViewModel for ScanPipeline)
     val capturedFrames      = mutableListOf<Pair<List<Vec3>, Float>>()
-    val biometricFrames     = mutableListOf<Pair<com.arhand.tracking.HandLandmarks, Float>>()
+    val biometricFrames     = mutableListOf<Pair<com.neardimension.handy.tracking.HandLandmarks, Float>>()
     val capturedDepthFrames = mutableListOf<List<Vec3>>()
     val capturedBitmaps     = mutableListOf<android.graphics.Bitmap>()
 
@@ -165,7 +165,7 @@ class SpatialFrameRouter(
 
             // SL depth for /depth/map
             if (frame.slCalibrated && frame.slDepth != null) {
-                oscStreamer.pendingSLResult = com.arhand.depth.StructuredLightDepthSource.SLResult(
+                oscStreamer.pendingSLResult = com.neardimension.handy.depth.StructuredLightDepthSource.SLResult(
                     gradX      = frame.slGradX ?: FloatArray(0),
                     gradY      = frame.slGradY ?: FloatArray(0),
                     depth      = frame.slDepth,

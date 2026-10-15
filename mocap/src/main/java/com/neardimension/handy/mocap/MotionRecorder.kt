@@ -1,6 +1,6 @@
-package com.arhand.mocap
+package com.neardimension.handy.mocap
 
-import com.arhand.util.Vec3
+import com.neardimension.handy.util.Vec3
 import java.io.File
 import java.io.FileWriter
 import kotlin.math.asin
@@ -122,7 +122,7 @@ class MotionRecorder(
          * Null when face tracking was disabled or unavailable.
          * Written to BVH as extension DOF channels; emitted via OSC separately.
          */
-        val faceExpressions: com.arhand.tracking.FaceExpressions? = null,
+        val faceExpressions: com.neardimension.handy.tracking.FaceExpressions? = null,
         /**
          * ARCH-2 — Body joint rotations from [BodyRetargetResult] captured at the same frame.
          * Null when body tracking was disabled. Written to BVH body channels and
@@ -173,7 +173,7 @@ class MotionRecorder(
      *
      * @param result  Output from [BoneRetargeter.retarget] for the current frame.
      */
-    fun pushFrame(result: RetargetResult, faceExpressions: com.arhand.tracking.FaceExpressions? = null, bodyJoints: Map<BodyJoint, Quaternion>? = null) {
+    fun pushFrame(result: RetargetResult, faceExpressions: com.neardimension.handy.tracking.FaceExpressions? = null, bodyJoints: Map<BodyJoint, Quaternion>? = null) {
         val now = System.currentTimeMillis()
         val frame = RecordedFrame(
             timestampMs     = if (recordingStartMs < 0) 0L else now - recordingStartMs,
@@ -251,7 +251,7 @@ class MotionRecorder(
     fun exportBvh(
         outputDir:    File,
         label:        String = "mocap",
-        jointOffsets: Map<Int, com.arhand.util.Vec3>? = null
+        jointOffsets: Map<Int, com.neardimension.handy.util.Vec3>? = null
     ): File? {
         val snapshot = frameSnapshot()
         if (snapshot.isEmpty()) return null
@@ -274,7 +274,7 @@ class MotionRecorder(
 
     private fun writeBvhHierarchy(
         w:            FileWriter,
-        jointOffsets: Map<Int, com.arhand.util.Vec3>? = null
+        jointOffsets: Map<Int, com.neardimension.handy.util.Vec3>? = null
     ) {
         w.write("HIERARCHY\n")
 
@@ -372,7 +372,7 @@ class MotionRecorder(
         finger:       String,
         joints:       List<String>,
         depth:        Int,
-        jointOffsets: Map<Int, com.arhand.util.Vec3>? = null
+        jointOffsets: Map<Int, com.neardimension.handy.util.Vec3>? = null
     ) {
         if (joints.isEmpty()) return
         val indent = "\t".repeat(depth)
