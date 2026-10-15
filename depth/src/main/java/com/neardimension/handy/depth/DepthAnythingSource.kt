@@ -2,7 +2,10 @@ package com.neardimension.handy.depth
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.Rect
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
@@ -26,10 +29,13 @@ import kotlin.math.min
  *
  * ## Model expectation
  *
- * Input tensor:  "image"  — float32 [1, 3, INPUT_H, INPUT_W], RGB normalised to [0, 1]
- * Output tensor: "depth"  — float32 [1, 1, INPUT_H, INPUT_W], relative inverse depth
+ * Input tensor:  float32 [1, 3, INPUT_H, INPUT_W], RGB, ImageNet mean/std normalised
+ * Output tensor: float32 [1, INPUT_H, INPUT_W] (or [1, 1, H, W]), relative inverse depth
  *
- * Place the ONNX file at: src/main/assets/depth_anything_v2_small.ort
+ * Tensor names are read from the model, not hardcoded. The bundled model is the
+ * onnx-community export of Depth Anything V2 Small (Apache-2.0, see assets/models/
+ * README.txt); its spatial dims are dynamic (multiples of 14), so INPUT_W × INPUT_H is
+ * chosen from tools/benchmark/da2_tum.py measurements, keeping the camera's 4:3 aspect.
  *
  * If the model file is absent, [isAvailable] returns false and all outputs remain null —
  * the channel weight in [CrossChannelArbiter] will be zeroed automatically.
@@ -80,8 +86,15 @@ class DepthAnythingSource(private val context: Context) {
      */
     val isMetricCalibrated: Boolean get() = xrCalibrated || llCalibrated
 
-    private var env:     OrtEnvironment? = null
-    private var session: OrtSession?     = null
+    private var env:       OrtEnvironment? = null
+    private var session:   OrtSession?     = null
+    private var inputName: String          = ""
+
+    // Reused model-input bitmap — process() is single-flight (see [processing]).
+    private val scaledBitmap = Bitmap.createBitmap(INPUT_W, INPUT_H, Bitmap.Config.ARGB_8888)
+    private val scaledCanvas = Canvas(scaledBitmap)
+    private val scalePaint   = Paint(Paint.FILTER_BITMAP_FLAG)
+    private val dstRect      = Rect(0, 0, INPUT_W, INPUT_H)
 
     private val inputBuf = FloatBuffer.allocate(3 * INPUT_H * INPUT_W)
 
@@ -152,6 +165,7 @@ class DepthAnythingSource(private val context: Context) {
             val bytes = context.assets.open(ASSET_PATH).use { it.readBytes() }
             env       = OrtEnvironment.getEnvironment()
             session   = env!!.createSession(bytes, OrtSession.SessionOptions())
+            inputName = session!!.inputNames.first()
             isAvailable = true
         } catch (_: Exception) {
             isAvailable = false
@@ -215,20 +229,19 @@ class DepthAnythingSource(private val context: Context) {
     fun process(bitmap: Bitmap, flow: FlowSnapshot = FlowSnapshot.ZERO) {
         val sess = session ?: return
 
-        // Resize to model input size
-        val scaled = Bitmap.createScaledBitmap(bitmap, INPUT_W, INPUT_H, true)
+        // Resize to model input size into the reused bitmap
+        scaledCanvas.drawBitmap(bitmap, null, dstRect, scalePaint)
 
         // Preprocess: HWC → CHW, normalise
-        fillInputBuffer(scaled)
-        scaled.recycle()
+        fillInputBuffer(scaledBitmap)
 
         val env2 = env ?: return
         val shape = longArrayOf(1, 3, INPUT_H.toLong(), INPUT_W.toLong())
         val tensor = OnnxTensor.createTensor(env2, inputBuf, shape)
         val rawFlat = try {
-            val result = sess.run(mapOf("image" to tensor))
+            val result = sess.run(mapOf(inputName to tensor))
             try {
-                val output = result[0].value as? Array<*> ?: return
+                val output = result[0] as? OnnxTensor ?: return
                 flattenOutput(output) ?: return
             } finally {
                 result.close()
@@ -237,7 +250,7 @@ class DepthAnythingSource(private val context: Context) {
             tensor.close()
         }
 
-        // Bilinear downsample from 518×518 model output to 128×96 dense map (reuse scratch buf)
+        // Bilinear downsample from INPUT_W×INPUT_H model output to 128×96 dense map (reuse scratch buf)
         val dense = denseScratchBuf
         var minV  = Float.MAX_VALUE; var maxV = -Float.MAX_VALUE
 
@@ -449,6 +462,7 @@ class DepthAnythingSource(private val context: Context) {
     }
 
     fun close() {
+        isAvailable = false
         session?.close(); session = null
         env?.close();     env     = null
     }
@@ -476,24 +490,16 @@ class DepthAnythingSource(private val context: Context) {
     }
 
     @Suppress("UNCHECKED_CAST")
-    private fun flattenOutput(output: Array<*>): FloatArray? {
-        // Output shape: [1, 1, H, W] → flatten innermost two dims into pre-allocated flattenBuf.
-        return try {
-            val l1 = output[0] as? Array<*> ?: return null
-            val l2 = l1[0]    as? Array<*> ?: return null
-            val rows = l2.size
-            val cols = (l2[0] as? FloatArray)?.size ?: return null
-            if (rows * cols > flattenBuf.size) return null  // guard: model output larger than expected
-            for (r in 0 until rows) {
-                val row = l2[r] as? FloatArray ?: continue
-                row.copyInto(flattenBuf, r * cols)
-            }
-            flattenBuf
-        } catch (_: Exception) { null }
+    private fun flattenOutput(output: OnnxTensor): FloatArray? {
+        // [1, H, W] or [1, 1, H, W] — either way a contiguous H×W float block.
+        val buf = output.floatBuffer
+        if (buf.remaining() != flattenBuf.size) return null  // unexpected output size
+        buf.get(flattenBuf)
+        return flattenBuf
     }
 
     companion object {
-        private const val ASSET_PATH = "depth_anything_v2_small.ort"
+        private const val ASSET_PATH = "depth_anything_v2_small.onnx"
         private const val INPUT_W    = 518   // model native width
         private const val INPUT_H    = 518   // model native height
         /** Dense output width — 16× more columns than the legacy 8-block grid. */

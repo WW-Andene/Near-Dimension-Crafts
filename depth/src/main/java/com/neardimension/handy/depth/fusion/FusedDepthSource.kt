@@ -22,6 +22,7 @@ import com.neardimension.handy.depth.SfMDepthSource
 import com.neardimension.handy.depth.StereoDepthSource
 import com.neardimension.handy.util.PointCloudStore
 import com.neardimension.handy.camera.BitmapGrayscaleShim
+import kotlin.concurrent.thread
 import kotlinx.coroutines.CoroutineScope
 import kotlin.math.abs
 import kotlin.math.sqrt
@@ -378,6 +379,10 @@ class FusedDepthSource(
         lastArcoreMeanDepth   = Float.NaN
         lastArcoreMeanDepthMs = 0L
         savedCallback       = callback
+
+        // DA2 model load (asset read + ORT session) is slow — keep it off the caller's
+        // thread. processAuxSources() skips DA2 until isAvailable flips to true.
+        if (!da2.isAvailable) thread(name = "DA2-init", isDaemon = true) { da2.init() }
 
         // S1.1: Register ALS sensor — one reading per second is sufficient
         val sm = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
