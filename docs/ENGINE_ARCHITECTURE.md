@@ -42,7 +42,7 @@ util (no deps)
 dependency, not a behavioral one. Not worth restructuring.
 
 For a visual tree of this layer model down to every individual component and its functional
-role, see [`docs/ENGINE_SCHEMATIC.html`](docs/ENGINE_SCHEMATIC.html) — open it in a browser.
+role, see [`docs/ENGINE_SCHEMATIC.html`](ENGINE_SCHEMATIC.html) — open it in a browser.
 
 ## 3. Principles
 

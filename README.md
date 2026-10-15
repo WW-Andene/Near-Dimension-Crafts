@@ -13,17 +13,21 @@ No active illumination is used beyond the device's own torch — see
 engineering notes behind the passive depth pipeline (outdoor light, low-light,
 motion blur, etc.).
 
-For a visual, layer-by-layer tree of every module and component in the engine
-(Core/Translation/Application, with each part's functional role), see
-[`docs/ENGINE_SCHEMATIC.html`](docs/ENGINE_SCHEMATIC.html) — open it directly in
-a browser.
-
 > Gradle project name is `Handy`; the repository is `Near-Dimension-Crafts`.
+
+## Documentation
+
+| Document | Contents |
+|---|---|
+| [`docs/ENGINE_ARCHITECTURE.md`](docs/ENGINE_ARCHITECTURE.md) | Layer model and every diagnosed issue (§-numbered findings referenced from code comments). |
+| [`docs/REDESIGN_PLAN.md`](docs/REDESIGN_PLAN.md) | The phased fix plan executed against those findings (phases 0–17, all done). |
+| [`docs/ENGINE_SCHEMATIC.html`](docs/ENGINE_SCHEMATIC.html) | Visual tree of every module and component. |
+| [`docs/depth-weakness-solutions.md`](docs/depth-weakness-solutions.md) | Engineering notes on the passive depth pipeline. |
+| [`CHANGELOG.md`](CHANGELOG.md) | Notable changes. |
 
 ## Status
 
-The codebase was split from a single `app` module into the focused Gradle
-modules described below (see `settings.gradle`'s "R2" comment). `app/` now
+The codebase is split into the focused Gradle modules described below. `app/`
 only contains its own UI/ViewModel/feature-glue code and depends on the
 library modules via `project(':x')` for everything else.
 
@@ -100,18 +104,32 @@ util, tracking, depth, scanner, mocap, render, export, camera ← app
 
 ## Requirements
 
-- JDK 17
-- Android SDK (`compileSdk 34`, `minSdk 26`, `targetSdk 34`)
-- Gradle 8.7 (via the included wrapper — no local Gradle install needed)
+- JDK 17 or newer (CI uses 21)
+- Android SDK platform 37 (`compileSdk 37`, `targetSdk 36`, `minSdk 26`)
+- Gradle 9.8 and AGP 9.4 (via the included wrapper — no local Gradle install needed)
+
+All dependency and SDK versions are declared once in
+[`gradle/libs.versions.toml`](gradle/libs.versions.toml). Shared Android
+configuration for the library modules lives in the root `build.gradle`.
 
 ## Building
 
 ```bash
-./gradlew assembleDebug
+./gradlew testDebugUnitTest   # unit tests
+./gradlew lintDebug           # Android lint (fails on errors)
+./gradlew assembleDebug       # debug APK
+./gradlew assembleRelease     # minified release APK (unsigned)
 ```
 
-CI (`.github/workflows/build.yml`) runs the same command on every push to
-`main`/`claude/**` and on pull requests, uploading the debug APK as an artifact.
+CI (`.github/workflows/build.yml`) runs tests, lint and the debug build on every
+push to `main`/`claude/**` and on pull requests, uploading the debug APK as an
+artifact (and the test/lint reports when a step fails).
+
+### Optional model files
+
+- `app/src/main/assets/depth_anything_v2_small.ort` — Depth Anything v2 model for
+  the neural monocular depth channel. **Not included**; without it the channel
+  stays disabled and the other depth sources are used.
 
 ### Optional bundled 3D assets
 
@@ -128,7 +146,7 @@ licence.
 
 ## Permissions
 
-The app requests `CAMERA`, `FLASHLIGHT`, `INTERNET`, and
+The app requests `CAMERA`, `INTERNET`, and
 `CHANGE_WIFI_MULTICAST_STATE` (for OSC/mDNS discovery on the local network).
 ARCore (`com.google.ar.core`) is declared `optional` — the app is designed to
 install and run on devices without Play Services for AR, degrading gracefully
