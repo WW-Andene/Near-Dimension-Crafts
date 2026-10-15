@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Pose illustrations are looked up by name at runtime (ScanOverlay:
+     getIdentifier("hand_pose_${pose.id}")), so the resource shrinker can't see
+     them and strips them from release builds without this keep rule. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/hand_pose_*" />

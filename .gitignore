@@ -1,27 +1,20 @@
-## Android build outputs
+# Gradle / Android build outputs
 .gradle/
-build/
+**/build/
+**/.kotlin/
 *.apk
 *.aab
 *.ap_
 
-## Local config — never commit
+# Local config — never commit
 local.properties
-keystore.jks
-*.keystore
 *.jks
+*.keystore
 
-## IDE files
+# IDE
 .idea/
 *.iml
 .DS_Store
 
-## Claude Code session data
+# Claude Code session data
 .claude/
-
-## Gradle caches
-.gradle
-**/build/
-
-## Kotlin incremental compilation
-**/.kotlin/
