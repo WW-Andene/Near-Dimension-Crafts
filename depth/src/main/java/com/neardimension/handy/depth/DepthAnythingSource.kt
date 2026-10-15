@@ -10,8 +10,9 @@ import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.launch
+import java.util.concurrent.Executors
 import java.nio.FloatBuffer
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.exp
@@ -23,7 +24,7 @@ import kotlin.math.min
  * DA2 — Depth Anything v2 monocular depth estimator.
  *
  * Loads a Depth Anything v2 ONNX model from [ASSET_PATH] and runs per-frame
- * inference on [Dispatchers.Default]. The model produces a relative depth map
+ * inference on a dedicated background thread (≤ 4 Hz). The model produces a relative depth map
  * which is then affine-calibrated to metric using the XR anchor offset supplied
  * via [setXrAnchor].
  *
@@ -169,7 +170,13 @@ class DepthAnythingSource(private val context: Context) {
         try {
             val bytes = context.assets.open(ASSET_PATH).use { it.readBytes() }
             env       = OrtEnvironment.getEnvironment()
-            session   = env!!.createSession(bytes, OrtSession.SessionOptions())
+            // Two intra-op threads: ORT defaults to every core, which starved MediaPipe
+            // tracking, rendering and the UI of CPU once this channel actually ran.
+            val opts = OrtSession.SessionOptions().apply {
+                setIntraOpNumThreads(INTRA_OP_THREADS)
+                setInterOpNumThreads(1)
+            }
+            session   = env!!.createSession(bytes, opts)
             inputName = session!!.inputNames.first()
             isAvailable = true
         } catch (_: Exception) {
@@ -211,7 +218,8 @@ class DepthAnythingSource(private val context: Context) {
     private val processing = AtomicBoolean(false)
 
     /**
-     * Run inference on [bitmap] asynchronously on [Dispatchers.Default].
+     * Run inference on [bitmap] asynchronously on the dedicated DA2 thread, at most every
+     * MIN_INTERVAL_MS.
      * Results are written to [depthBlocks] when complete. Drops the frame instead
      * of overlapping if a previous call is still running.
      *
@@ -219,16 +227,39 @@ class DepthAnythingSource(private val context: Context) {
      */
     fun processAsync(bitmap: Bitmap, flow: FlowSnapshot, scope: CoroutineScope) {
         if (!isAvailable) return
+        // Rate cap: DA2 feeds calibration and fusion, which do not need camera rate. Without
+        // it inferences ran back to back and DepthChannelBudget never noticed — it only sees
+        // this method's (near-zero) dispatch time, not the inference itself.
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastStartMs < MIN_INTERVAL_MS) return
         if (!processing.compareAndSet(false, true)) return   // previous frame still in flight
+        lastStartMs = now
         val copy = bitmap.copy(Bitmap.Config.ARGB_8888, false)
-        scope.launch(Dispatchers.Default) {
+        scope.launch(inferenceDispatcher) {
             try {
+                val t0 = android.os.SystemClock.elapsedRealtime()
                 process(copy, flow)
+                lastInferenceMs = android.os.SystemClock.elapsedRealtime() - t0
             } finally {
+                copy.recycle()
                 processing.set(false)
             }
         }
     }
+
+    /** Wall time of the last completed inference, for diagnostics. */
+    @Volatile var lastInferenceMs: Long = 0L
+        private set
+    private var lastStartMs = 0L
+
+    // One dedicated background-priority thread, off the shared Dispatchers.Default pool
+    // the frame pipeline also uses.
+    private val inferenceDispatcher = Executors.newSingleThreadExecutor { r ->
+        Thread({
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
+            r.run()
+        }, "DA2-infer").apply { isDaemon = true }
+    }.asCoroutineDispatcher()
 
     /** Synchronous inference — call from a background thread. */
     fun process(bitmap: Bitmap, flow: FlowSnapshot = FlowSnapshot.ZERO) {
@@ -512,6 +543,9 @@ class DepthAnythingSource(private val context: Context) {
         private const val MODEL_LONG   = 364
         private const val MODEL_SHORT  = 280
         private const val MODEL_PIXELS = MODEL_LONG * MODEL_SHORT
+        /** ≤ 4 inferences per second. */
+        private const val MIN_INTERVAL_MS = 250L
+        private const val INTRA_OP_THREADS = 2
         /** Dense output width — 16× more columns than the legacy 8-block grid. */
         const val DENSE_W   = 128
         /** Dense output height — 16× more rows than the legacy 6-block grid. */
