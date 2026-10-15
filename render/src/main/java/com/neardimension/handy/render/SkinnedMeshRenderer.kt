@@ -2,8 +2,10 @@ package com.neardimension.handy.render
 
 import android.opengl.GLES30
 import android.opengl.Matrix
+import com.neardimension.handy.mocap.BodySkinPose
 import com.neardimension.handy.mocap.BoneRetargeter
 import com.neardimension.handy.mocap.LoadedAsset
+import com.neardimension.handy.mocap.SkinnedGeometry
 import com.neardimension.handy.mocap.Quaternion
 import com.neardimension.handy.mocap.RetargetResult
 import java.nio.ByteBuffer
@@ -37,7 +39,12 @@ class SkinnedMeshRenderer {
         // threshold), sharing the same palette/uniform array — so this must cover
         // both, not just the hand's 16 slots, or body node indices alias onto
         // hand slots and corrupt both.
-        const val MAX_SKIN_JOINTS = 64
+        //
+        // 56 rather than 64: 56 mat4 = 224 uniform vectors, which with the MVP/normal
+        // matrices and morph weights stays under OpenGL ES 3.0's guaranteed minimum of
+        // 256 vertex uniform vectors (several Adreno GPUs report exactly 256; 64 bones
+        // would fail to link there). Body rigs are reduced to fit — see BodySkeleton.
+        const val MAX_SKIN_JOINTS = com.neardimension.handy.mocap.BodySkeleton.MAX_BONES
     }
 
     // ─── GL handles ───────────────────────────────────────────────────────────
@@ -48,6 +55,7 @@ class SkinnedMeshRenderer {
     private val skinVbo  = IntArray(1)  // joint indices (JOINTS_0, ivec4 per vertex)
     private val wgtVbo   = IntArray(1)  // blend weights (WEIGHTS_0, vec4 per vertex)
     private val normVbo  = IntArray(1)  // normals
+    private val indexEbo = IntArray(1)  // triangle indices (body assets)
     private val vaoHandle = IntArray(1)
 
     // GAP-2 — Morph target delta VBOs (one per target, allocated at asset load)
@@ -62,6 +70,11 @@ class SkinnedMeshRenderer {
 
     // Current GPU-resident geometry counts
     private var vertexCount = 0
+    private var indexCount  = 0
+
+    // Body assets: skinned geometry driven by BodySkinPose, framed by bodyModel.
+    @Volatile private var body: SkinnedGeometry? = null
+    private val bodyModel = FloatArray(16).also { Matrix.setIdentityM(it, 0) }
 
     // ─── Pose state (written every tracking frame) ────────────────────────────
     @Volatile private var bonePalette = FloatArray(MAX_SKIN_JOINTS * 16)
@@ -107,6 +120,7 @@ class SkinnedMeshRenderer {
         GLES30.glGenBuffers(1, skinVbo, 0)
         GLES30.glGenBuffers(1, wgtVbo,  0)
         GLES30.glGenBuffers(1, normVbo, 0)
+        GLES30.glGenBuffers(1, indexEbo, 0)
 
         cacheSkinnedLocations()
     }
@@ -116,16 +130,38 @@ class SkinnedMeshRenderer {
      * The actual VBO upload happens lazily on the GL thread in [draw].
      */
     fun updateAsset(asset: LoadedAsset) {
+        val skinned = asset.skinned
+        body                   = skinned
+        if (skinned != null) {
+            bonePalette = paletteOf(BodySkinPose.restPalette(skinned.skeleton))
+            frameBody(skinned)
+        }
         pendingAsset           = asset
         inverseBindMatrices    = asset.inverseBindMatrices
         assetDirty             = true
     }
+
+    /** Scale the body to 1.6 view units tall and centre it (the AR view spans y ∈ [-1, 1]). */
+    private fun frameBody(g: SkinnedGeometry) {
+        val b = g.bounds
+        val height = (b[4] - b[1]).takeIf { it > 1e-6f } ?: 1f
+        val s = 1.6f / height
+        Matrix.setIdentityM(bodyModel, 0)
+        Matrix.scaleM(bodyModel, 0, s, s, s)
+        Matrix.translateM(bodyModel, 0, -(b[0] + b[3]) / 2f, -(b[1] + b[4]) / 2f, -(b[2] + b[5]) / 2f)
+    }
+
+    private fun paletteOf(bones: FloatArray): FloatArray =
+        FloatArray(MAX_SKIN_JOINTS * 16).also { bones.copyInto(it, 0, 0, minOf(bones.size, it.size)) }
 
     /**
      * Call every tracking frame with the latest [RetargetResult].
      * Computes the bone palette = jointMatrix × inverseBindMatrix for each joint.
      */
     fun updatePose(result: RetargetResult) {
+        // Body assets are posed by updateBodyPose; the hand retarget's 16 slots would
+        // overwrite body bones.
+        if (body != null) return
         val palette = FloatArray(MAX_SKIN_JOINTS * 16)
 
         for (jointIdx in 0 until BoneRetargeter.JOINT_COUNT) {
@@ -163,9 +199,15 @@ class SkinnedMeshRenderer {
      */
     fun updateBodyPose(
         bodyResult: com.neardimension.handy.mocap.BodyRetargetResult?,
-        asset:      com.neardimension.handy.mocap.LoadedAsset?
+        asset:      com.neardimension.handy.mocap.LoadedAsset?,
+        mirror:     Boolean = false
     ) {
         if (bodyResult == null || asset == null) return
+        asset.skinned?.let { g ->
+            bonePalette = paletteOf(BodySkinPose.solve(g.skeleton, bodyResult, mirror))
+            poseDirty   = true
+            return
+        }
         val jointMap = asset.bodyJointMap
         if (jointMap.isEmpty()) return
 
@@ -237,7 +279,7 @@ class SkinnedMeshRenderer {
 
         if (vertexCount == 0) return   // no mesh — nothing to draw
 
-        val model = FloatArray(16).also { Matrix.setIdentityM(it, 0) }
+        val model = if (body != null) bodyModel else FloatArray(16).also { Matrix.setIdentityM(it, 0) }
 
         GLES30.glUseProgram(skinnedProgram)
 
@@ -275,7 +317,8 @@ class SkinnedMeshRenderer {
 
         // Bind VAO and draw
         GLES30.glBindVertexArray(vaoHandle[0])
-        GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, vertexCount)
+        if (indexCount > 0) GLES30.glDrawElements(GLES30.GL_TRIANGLES, indexCount, GLES30.GL_UNSIGNED_INT, 0)
+        else GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, vertexCount)
         GLES30.glBindVertexArray(0)
     }
 
@@ -284,6 +327,7 @@ class SkinnedMeshRenderer {
         if (skinVbo[0]   != 0) { GLES30.glDeleteBuffers(1, skinVbo,  0); skinVbo[0]  = 0 }
         if (wgtVbo[0]    != 0) { GLES30.glDeleteBuffers(1, wgtVbo,   0); wgtVbo[0]   = 0 }
         if (normVbo[0]   != 0) { GLES30.glDeleteBuffers(1, normVbo,  0); normVbo[0]  = 0 }
+        if (indexEbo[0]  != 0) { GLES30.glDeleteBuffers(1, indexEbo, 0); indexEbo[0] = 0 }
         // GAP-2 — Delete morph delta VBOs
         for (vbo in morphVbos) {
             if (vbo[0] != 0) GLES30.glDeleteBuffers(1, vbo, 0)
@@ -294,23 +338,35 @@ class SkinnedMeshRenderer {
         if (skinnedProgram != 0) { GLES30.glDeleteProgram(skinnedProgram); skinnedProgram = 0 }
         if (ghostProgram   != 0) { GLES30.glDeleteProgram(ghostProgram);   ghostProgram   = 0 }
         vertexCount = 0
+        indexCount  = 0
     }
 
     // ─── Geometry upload ──────────────────────────────────────────────────────
 
     private fun uploadAssetGeometry(asset: LoadedAsset) {
-        val pos = asset.meshPositions
+        val skinned = asset.skinned
+        val pos = skinned?.positions ?: asset.meshPositions
         vertexCount = pos.size / 3
+        indexCount  = 0
         if (vertexCount == 0) return
 
-        val normals = computeFlatNormals(pos)
-
-        val joints  = IntArray(vertexCount * 4) { if (it % 4 == 0) 0 else 0 }
-        val weights = FloatArray(vertexCount * 4).apply {
+        // Body assets carry real normals, indices and skin weights. Hand puppets keep the
+        // legacy path: triangle-soup positions, rigid on joint 0.
+        val normals = skinned?.normals ?: computeFlatNormals(pos)
+        val joints  = skinned?.joints ?: IntArray(vertexCount * 4)
+        val weights = skinned?.weights ?: FloatArray(vertexCount * 4).apply {
             for (i in 0 until vertexCount) { this[i * 4] = 1f }
         }
 
         GLES30.glBindVertexArray(vaoHandle[0])
+
+        if (skinned != null) {
+            val ib = ByteBuffer.allocateDirect(skinned.indices.size * 4).order(ByteOrder.nativeOrder())
+                .asIntBuffer().apply { put(skinned.indices); position(0) }
+            GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, indexEbo[0])
+            GLES30.glBufferData(GLES30.GL_ELEMENT_ARRAY_BUFFER, skinned.indices.size * 4, ib, GLES30.GL_STATIC_DRAW)
+            indexCount = skinned.indices.size
+        }
 
         uploadFloatVbo(posVbo[0],  pos,     3, GLES30.glGetAttribLocation(skinnedProgram, "aPosition"))
         uploadFloatVbo(normVbo[0], normals, 3, GLES30.glGetAttribLocation(skinnedProgram, "aNormal"))

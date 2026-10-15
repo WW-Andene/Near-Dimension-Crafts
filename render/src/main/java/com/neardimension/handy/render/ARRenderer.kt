@@ -128,7 +128,9 @@ class ARRenderer(private val perfMonitor: PerfMonitor) : GLSurfaceView.Renderer 
         bodyResult: com.neardimension.handy.mocap.BodyRetargetResult?,
         asset:      com.neardimension.handy.mocap.LoadedAsset?
     ) {
-        skinnedMeshRenderer.updateBodyPose(bodyResult, asset)
+        // Mirror the avatar when the preview is mirrored (front camera), so it moves like
+        // a reflection on screen.
+        skinnedMeshRenderer.updateBodyPose(bodyResult, asset, mirror = renderCommand.get().mirrorX)
     }
 
     /**
@@ -255,7 +257,11 @@ class ARRenderer(private val perfMonitor: PerfMonitor) : GLSurfaceView.Renderer 
 
         timeMs = System.currentTimeMillis()
         val timeSec = (timeMs % 100000L) / 1000f
-        val assetLoaded = cmd.loadedAsset != null
+        // Full-body characters are drawn once per frame whether or not a hand is visible;
+        // hand puppets replace the first hand's skeleton, as before.
+        val bodyAsset   = cmd.loadedAsset?.skinned != null
+        val assetLoaded = cmd.loadedAsset != null && !bodyAsset
+        if (bodyAsset) skinnedMeshRenderer.draw(viewMatrix, projMatrix, cmd.torchOn, timeSec)
 
         for (i in cmd.hands.indices) {
             val lms = cmd.hands[i]

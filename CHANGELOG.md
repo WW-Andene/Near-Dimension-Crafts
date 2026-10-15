@@ -11,7 +11,20 @@
   now actually runs (it never loaded before — four separate bugs, see git log).
 - `tools/benchmark/da2_tum.py` and first results in `docs/benchmarks/`.
 
+- Rigged humanoid models now actually animate. The renderer ignored skin weights
+  (every vertex bound to bone 0), drew indexed meshes as triangle soup, rotated
+  bones about the model origin without hierarchy, and only drew a body model while
+  a hand was visible. New: `SkinnedGlbBuilder` (all primitives, indices, normals,
+  real JOINTS/WEIGHTS, scene-space Y-up rest pose, rig reduced to ≤ 56 bones),
+  `HumanBoneMapper` (Unity, VRM 0/1, Mixamo, Biped, Unreal, Sketchfab suffixes) and
+  `BodySkinPose` (retargets onto the rig's own rest pose — T or A — with hierarchy,
+  facing detection and front-camera mirroring). JVM tests cover all three.
+- Bundled body model: the CC BY 4.0 ball-joint doll by ChamberSu1996, rigged with
+  `tools/rigging/rig_doll.py`; credited in the asset picker.
+
 ### Changed
+- Skin palette 64 → 56 bones so the skinned shader fits OpenGL ES 3.0's minimum
+  of 256 vertex uniform vectors (64 could fail to link on some Adreno GPUs).
 - DA2 input 518×518 squashed → 364×280, oriented like the camera frame
   (portrait 280×364 in the app): ~2× faster on x86 fp32, and no longer distorts the image.
 - Package and application ID renamed `com.arhand` → `com.neardimension.handy`

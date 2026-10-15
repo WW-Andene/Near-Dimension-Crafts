@@ -97,6 +97,13 @@ fun AssetPickerDialog(
                 AssetLoader.Bundled.ALL.forEach { (label, filename) ->
                     AssetPickerRow(label = label, onClick = { onPickBundled(filename, label) })
                 }
+                // CC BY 4.0 attribution for the bundled body model (required by its licence).
+                Text(
+                    text       = AssetLoader.Bundled.BODY_CREDIT,
+                    fontSize   = 8.sp,
+                    color      = Color.White.copy(alpha = 0.4f),
+                    fontFamily = FontFamily.Monospace
+                )
 
                 // ASSET-5 — Device files from drop folder
                 if (deviceAssets.isNotEmpty()) {

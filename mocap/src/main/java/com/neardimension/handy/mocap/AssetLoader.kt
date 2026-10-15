@@ -62,71 +62,13 @@ enum class BodyJoint(val vmcName: String) {
  *   - Unreal   : pelvis, upperarm_l, …
  *   - Generic  : Hips, Spine, Chest, LeftUpperArm, … (Unity default)
  *
- * Matching is case-insensitive and strips common prefixes before lookup.
+ * Delegates to [HumanBoneMapper], which also covers 3ds Max Biped and Sketchfab's
+ * node-index suffixes.
  */
 object VrmJointMapper {
 
     /** Returns the [BodyJoint] for a glTF node name, or null if not recognised. */
-    fun map(nodeName: String): BodyJoint? {
-        val n = normalise(nodeName)
-        return TABLE[n]
-    }
-
-    private fun normalise(raw: String): String =
-        raw.lowercase()
-            .removePrefix("j_bip_c_")
-            .removePrefix("j_bip_l_")
-            .removePrefix("j_bip_r_")
-            .removePrefix("mixamorig:")
-            .removePrefix("mixamorig_")
-            .replace("_", "")
-            .replace("-", "")
-            .replace(" ", "")
-
-    private val TABLE: Map<String, BodyJoint> = buildMap {
-        // ── Hips / Pelvis ──────────────────────────────────────────────────
-        for (k in listOf("hips","hip","pelvis","root")) put(k, BodyJoint.HIPS)
-
-        // ── Spine ──────────────────────────────────────────────────────────
-        for (k in listOf("spine","spine1","spine01","lowerback")) put(k, BodyJoint.SPINE)
-
-        // ── Chest ──────────────────────────────────────────────────────────
-        for (k in listOf("chest","spine2","spine02","upperchest","thorax")) put(k, BodyJoint.CHEST)
-
-        // ── Neck ───────────────────────────────────────────────────────────
-        for (k in listOf("neck","neck1","neck01")) put(k, BodyJoint.NECK)
-
-        // ── Head ───────────────────────────────────────────────────────────
-        for (k in listOf("head","head1")) put(k, BodyJoint.HEAD)
-
-        // ── Left arm ───────────────────────────────────────────────────────
-        for (k in listOf("leftupperarm","leftarm","lupperarm","larm","arm_l","upperarml",
-                         "shoulder_l","leftshoulder")) put(k, BodyJoint.LEFT_UPPER_ARM)
-        for (k in listOf("leftlowerarm","leftforearm","lforearm","lowerarml","forearm_l",
-                         "elbow_l","leftforearm")) put(k, BodyJoint.LEFT_LOWER_ARM)
-
-        // ── Right arm ──────────────────────────────────────────────────────
-        for (k in listOf("rightupperarm","rightarm","rupperarm","rarm","arm_r","upperarmr",
-                         "shoulder_r","rightshoulder")) put(k, BodyJoint.RIGHT_UPPER_ARM)
-        for (k in listOf("rightlowerarm","rightforearm","rforearm","lowerarmr","forearm_r",
-                         "elbow_r","rightforearm")) put(k, BodyJoint.RIGHT_LOWER_ARM)
-
-        // ── Left leg ───────────────────────────────────────────────────────
-        for (k in listOf("leftupperleg","leftthigh","lthigh","lupperleg","thigh_l",
-                         "upleg_l","leftupleg")) put(k, BodyJoint.LEFT_UPPER_LEG)
-        for (k in listOf("leftlowerleg","leftshin","lshin","llowerleg","shin_l",
-                         "leg_l","calf_l","leftleg")) put(k, BodyJoint.LEFT_LOWER_LEG)
-
-        // ── Right leg ──────────────────────────────────────────────────────
-        for (k in listOf("rightupperleg","rightthigh","rthigh","rupperleg","thigh_r",
-                         "upleg_r","rightupleg")) put(k, BodyJoint.RIGHT_UPPER_LEG)
-        for (k in listOf("rightlowerleg","rightshin","rshin","rlowerleg","shin_r",
-                         "leg_r","calf_r","rightleg")) put(k, BodyJoint.RIGHT_LOWER_LEG)
-
-        // ── Feet ───────────────────────────────────────────────────────────
-        for (k in listOf("leftfoot","lfoot","foot_l","ankle_l")) put(k, BodyJoint.LEFT_FOOT)
-        for (k in listOf("rightfoot","rfoot","foot_r","ankle_r")) put(k, BodyJoint.RIGHT_FOOT)
-    }
+    fun map(nodeName: String): BodyJoint? = HumanBoneMapper.map(nodeName)?.bodyJoint
 }
 
 /**
@@ -207,8 +149,12 @@ object AssetLoader {
         const val BODY_GLB      = "models/body_default.glb"
         val ALL = listOf(
             "Hand (built-in)"  to HAND_GLB,
-            "Body (built-in)"  to BODY_GLB
+            "Ball Joint Doll (built-in)" to BODY_GLB
         )
+
+        /** Attribution for [BODY_GLB] — CC BY 4.0 requires it wherever the model is shown. */
+        const val BODY_CREDIT =
+            "Ball Joint Doll Rigged Basemesh by ChamberSu1996 (Sketchfab), CC BY 4.0 — rigged for Handy"
     }
 
     /**
@@ -299,13 +245,19 @@ object AssetLoader {
         // Derive bind pose bone directions from the inverse bind matrices
         val bindPose = deriveBindPose(root, jointNodeIndices, ibmList)
 
-        val slot = if (jointNodeIndices.size >= 21) AssetSlot.BODY_CHARACTER else AssetSlot.HAND_PUPPET
+        // Full skinned geometry for humanoid rigs (real weights, indices, normals, every
+        // primitive). Hand puppets keep the legacy single-primitive path below.
+        val skinned = runCatching { SkinnedGlbBuilder.build(root, bin) }.getOrNull()
+            ?.takeIf { it.skeleton.human.containsKey(HumanBone.HIPS) && it.skeleton.human.size >= 6 }
+
+        val slot = if (skinned != null || jointNodeIndices.size >= 21) AssetSlot.BODY_CHARACTER
+                   else AssetSlot.HAND_PUPPET
 
         // GAP-2 — Parse morph target delta buffers from mesh primitives[0].targets
         val morphDeltas = extractMorphDeltas(root, accessors, bufferViews, bin)
 
         return LoadedAsset(
-            meshPositions       = meshPositions,
+            meshPositions       = skinned?.positions ?: meshPositions,
             jointNodeIndices    = jointNodeIndices,
             inverseBindMatrices = ibmList,
             bindPose            = bindPose,
@@ -313,7 +265,8 @@ object AssetLoader {
             slot                = slot,
             bodyJointMap        = buildBodyJointMap(root, jointNodeIndices),
             blendShapeMap       = VrmBlendShapeParser.parse(root),
-            morphDeltas         = morphDeltas
+            morphDeltas         = if (skinned == null) morphDeltas else emptyList(),
+            skinned             = skinned
         )
     }
 
@@ -619,7 +572,13 @@ data class LoadedAsset(
      * Empty when the asset has no morph targets (non-VRM assets, default puppet).
      * Used by [SkinnedMeshRenderer] to allocate morph delta VBOs and upload weights per frame.
      */
-    val morphDeltas: List<FloatArray> = emptyList()
+    val morphDeltas: List<FloatArray> = emptyList(),
+
+    /**
+     * Render-ready skinned geometry and reduced skeleton for humanoid rigs, or null
+     * (hand puppets, unrigged meshes). When present, [meshPositions] equals its positions.
+     */
+    val skinned: SkinnedGeometry? = null
 ) {
     /** Number of skin joints. */
     val jointCount: Int get() = jointNodeIndices.size

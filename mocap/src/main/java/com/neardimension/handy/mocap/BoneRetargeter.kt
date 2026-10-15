@@ -400,6 +400,19 @@ data class Quaternion(val x: Float, val y: Float, val z: Float, val w: Float) {
         w * o.w - x * o.x - y * o.y - z * o.z
     )
 
+    /** Rotate [v] by this (unit) quaternion: q · v · q⁻¹. */
+    fun rotate(v: Vec3): Vec3 {
+        // t = 2 · (q.xyz × v);  v' = v + w·t + q.xyz × t
+        val tx = 2f * (y * v.z - z * v.y)
+        val ty = 2f * (z * v.x - x * v.z)
+        val tz = 2f * (x * v.y - y * v.x)
+        return Vec3(
+            v.x + w * tx + (y * tz - z * ty),
+            v.y + w * ty + (z * tx - x * tz),
+            v.z + w * tz + (x * ty - y * tx)
+        )
+    }
+
     /** Spherical linear interpolation toward [target] by factor [t]. */
     fun slerp(target: Quaternion, t: Float): Quaternion {
         var dot = x * target.x + y * target.y + z * target.z + w * target.w

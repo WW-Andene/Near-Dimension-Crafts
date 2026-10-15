@@ -257,6 +257,22 @@ object BodyRetargeter {
         return newState to result
     }
 
+    /**
+     * Live direction of [joint]'s driving landmark segment, recovered from its output
+     * rotation: the rotation is the shortest arc from the segment's T-pose direction to
+     * the live one, so applying it to that T-pose direction gives the live direction back.
+     * Lets consumers (e.g. [BodySkinPose]) re-target onto a rig whose rest pose is not a
+     * T-pose. Null for a joint with no segment.
+     */
+    fun liveDirection(joint: BodyJoint, rotation: Quaternion): Vec3? {
+        val bind = BIND_DIRECTION[joint] ?: return null
+        return rotation.rotate(bind)
+    }
+
+    private val BIND_DIRECTION: Map<BodyJoint, Vec3> by lazy {
+        BONE_SEGMENTS.associate { it.joint to it.bindDir }
+    }
+
     // ─── Per-joint EMA ────────────────────────────────────────────────────────
 
     private fun applyEma(joint: BodyJoint, q: Quaternion, emaPrev: MutableMap<BodyJoint, Quaternion>): Quaternion {

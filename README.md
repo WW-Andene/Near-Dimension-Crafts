@@ -133,11 +133,17 @@ artifact (and the test/lint reports when a step fails).
   (int8, 27 MB, Apache-2.0, see the NOTICE file next to it) for the neural
   monocular depth channel. Bundled. Measurements: [`docs/benchmarks/`](docs/benchmarks/da2-tum-rgbd.md).
 
-### Optional bundled 3D assets
+### Bundled 3D models
 
-`app/src/main/assets/models/` expects `hand_default.glb` and `body_default.glb`
-(CC0-licensed rigs). These are **not included** in the repo due to licensing —
-the app builds and runs without them, falling back to a default puppet.
+- `app/src/main/assets/models/body_default.glb` — "Ball Joint Doll Rigged Basemesh"
+  by ChamberSu1996, **CC BY 4.0**, rigged for Handy with
+  [`tools/rigging/rig_doll.py`](tools/rigging/rig_doll.py). Credited in the asset
+  picker and in `app/src/main/assets/models/README.txt`.
+- `hand_default.glb` — not included; the app falls back to a default puppet.
+
+Any humanoid `.glb` / `.vrm` (Unity, VRM 0/1, Mixamo, 3ds Max Biped or Unreal bone
+names) can be loaded from the asset picker. Secondary bones (hair, skirt, fingers)
+follow their parent rigidly; facial blend shapes are not applied to these rigs yet.
 
 ### Feature flags
 
