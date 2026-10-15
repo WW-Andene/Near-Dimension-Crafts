@@ -29,13 +29,14 @@ import kotlin.math.min
  *
  * ## Model expectation
  *
- * Input tensor:  float32 [1, 3, INPUT_H, INPUT_W], RGB, ImageNet mean/std normalised
- * Output tensor: float32 [1, INPUT_H, INPUT_W] (or [1, 1, H, W]), relative inverse depth
+ * Input tensor:  float32 [1, 3, H, W], RGB, ImageNet mean/std normalised
+ * Output tensor: float32 [1, H, W] (or [1, 1, H, W]), relative inverse depth
  *
  * Tensor names are read from the model, not hardcoded. The bundled model is the
  * onnx-community export of Depth Anything V2 Small (Apache-2.0, see assets/models/
- * README.txt); its spatial dims are dynamic (multiples of 14), so INPUT_W × INPUT_H is
- * chosen from tools/benchmark/da2_tum.py measurements, keeping the camera's 4:3 aspect.
+ * NOTICE); its spatial dims are dynamic (multiples of 14). W × H is MODEL_LONG × MODEL_SHORT,
+ * oriented per frame to match the camera bitmap (portrait or landscape) so the image is never
+ * squashed — see docs/benchmarks/da2-tum-rgbd.md for why this size.
  *
  * If the model file is absent, [isAvailable] returns false and all outputs remain null —
  * the channel weight in [CrossChannelArbiter] will be zeroed automatically.
@@ -90,13 +91,17 @@ class DepthAnythingSource(private val context: Context) {
     private var session:   OrtSession?     = null
     private var inputName: String          = ""
 
-    // Reused model-input bitmap — process() is single-flight (see [processing]).
-    private val scaledBitmap = Bitmap.createBitmap(INPUT_W, INPUT_H, Bitmap.Config.ARGB_8888)
-    private val scaledCanvas = Canvas(scaledBitmap)
-    private val scalePaint   = Paint(Paint.FILTER_BITMAP_FLAG)
-    private val dstRect      = Rect(0, 0, INPUT_W, INPUT_H)
+    // Reused model-input bitmaps, one per orientation — process() is single-flight (see [processing]).
+    private class ModelInput(val w: Int, val h: Int) {
+        val bitmap: Bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val rect   = Rect(0, 0, w, h)
+    }
+    private val landscapeInput by lazy { ModelInput(MODEL_LONG, MODEL_SHORT) }
+    private val portraitInput  by lazy { ModelInput(MODEL_SHORT, MODEL_LONG) }
+    private val scalePaint = Paint(Paint.FILTER_BITMAP_FLAG)
 
-    private val inputBuf = FloatBuffer.allocate(3 * INPUT_H * INPUT_W)
+    private val inputBuf = FloatBuffer.allocate(3 * MODEL_PIXELS)
 
     // Temporal EMA state for the dense map
     private val emaMap  = FloatArray(DENSE_W * DENSE_H)
@@ -150,14 +155,14 @@ class DepthAnythingSource(private val context: Context) {
 
     // Scratch buffers used inside process() — avoids per-inference heap allocations on the hot path
     private val denseScratchBuf    = FloatArray(DENSE_W * DENSE_H)   // bilinear downsample output
-    private val fillPixelsBuf      = IntArray(INPUT_W * INPUT_H)     // getPixels scratch for model input
+    private val fillPixelsBuf      = IntArray(MODEL_PIXELS)          // getPixels scratch for model input
     private val depthBlocksScratch = FloatArray(PYRAMID_BLOCKS)      // pyramid accumulator
     // Double-buffer for depthBlocks publication (same pattern as denseDepth)
     private val depthBlocksBufA    = FloatArray(PYRAMID_BLOCKS)
     private val depthBlocksBufB    = FloatArray(PYRAMID_BLOCKS)
     private var depthBlocksToggle  = false
     // Pre-allocated flatten buffer — avoids FloatArray(rows*cols) allocation inside flattenOutput each inference.
-    private val flattenBuf         = FloatArray(INPUT_H * INPUT_W)
+    private val flattenBuf         = FloatArray(MODEL_PIXELS)
 
     /** Load the ONNX model. Call once on a background thread during startup. */
     fun init() {
@@ -229,14 +234,16 @@ class DepthAnythingSource(private val context: Context) {
     fun process(bitmap: Bitmap, flow: FlowSnapshot = FlowSnapshot.ZERO) {
         val sess = session ?: return
 
-        // Resize to model input size into the reused bitmap
-        scaledCanvas.drawBitmap(bitmap, null, dstRect, scalePaint)
+        // Resize to model input size, same orientation as the frame (never squash)
+        val input = if (bitmap.height > bitmap.width) portraitInput else landscapeInput
+        val inW = input.w; val inH = input.h
+        input.canvas.drawBitmap(bitmap, null, input.rect, scalePaint)
 
         // Preprocess: HWC → CHW, normalise
-        fillInputBuffer(scaledBitmap)
+        fillInputBuffer(input.bitmap)
 
         val env2 = env ?: return
-        val shape = longArrayOf(1, 3, INPUT_H.toLong(), INPUT_W.toLong())
+        val shape = longArrayOf(1, 3, inH.toLong(), inW.toLong())
         val tensor = OnnxTensor.createTensor(env2, inputBuf, shape)
         val rawFlat = try {
             val result = sess.run(mapOf(inputName to tensor))
@@ -250,22 +257,22 @@ class DepthAnythingSource(private val context: Context) {
             tensor.close()
         }
 
-        // Bilinear downsample from INPUT_W×INPUT_H model output to 128×96 dense map (reuse scratch buf)
+        // Bilinear downsample from inW×inH model output to 128×96 dense map (reuse scratch buf)
         val dense = denseScratchBuf
         var minV  = Float.MAX_VALUE; var maxV = -Float.MAX_VALUE
 
         for (dy in 0 until DENSE_H) {
-            val srcY = dy.toFloat() * (INPUT_H - 1) / (DENSE_H - 1)
-            val y0   = srcY.toInt().coerceIn(0, INPUT_H - 2)
+            val srcY = dy.toFloat() * (inH - 1) / (DENSE_H - 1)
+            val y0   = srcY.toInt().coerceIn(0, inH - 2)
             val fy   = srcY - y0
             for (dx in 0 until DENSE_W) {
-                val srcX = dx.toFloat() * (INPUT_W - 1) / (DENSE_W - 1)
-                val x0   = srcX.toInt().coerceIn(0, INPUT_W - 2)
+                val srcX = dx.toFloat() * (inW - 1) / (DENSE_W - 1)
+                val x0   = srcX.toInt().coerceIn(0, inW - 2)
                 val fx   = srcX - x0
-                val v    = rawFlat[y0 * INPUT_W + x0]         * (1-fx) * (1-fy) +
-                           rawFlat[y0 * INPUT_W + x0 + 1]     * fx     * (1-fy) +
-                           rawFlat[(y0+1) * INPUT_W + x0]     * (1-fx) * fy     +
-                           rawFlat[(y0+1) * INPUT_W + x0 + 1] * fx     * fy
+                val v    = rawFlat[y0 * inW + x0]         * (1-fx) * (1-fy) +
+                           rawFlat[y0 * inW + x0 + 1]     * fx     * (1-fy) +
+                           rawFlat[(y0+1) * inW + x0]     * (1-fx) * fy     +
+                           rawFlat[(y0+1) * inW + x0 + 1] * fx     * fy
                 dense[dy * DENSE_W + dx] = v
                 if (v < minV) minV = v
                 if (v > maxV) maxV = v
@@ -472,9 +479,9 @@ class DepthAnythingSource(private val context: Context) {
     private fun fillInputBuffer(bmp: Bitmap) {
         inputBuf.rewind()
         val pixels = fillPixelsBuf
-        bmp.getPixels(pixels, 0, INPUT_W, 0, 0, INPUT_W, INPUT_H)
+        bmp.getPixels(pixels, 0, bmp.width, 0, 0, bmp.width, bmp.height)
         // CHW layout: channel 0 (R), channel 1 (G), channel 2 (B)
-        val n = INPUT_W * INPUT_H
+        val n = bmp.width * bmp.height
         for (c in 0..2) {
             val mean = MEAN[c]; val std = STD[c]
             for (i in 0 until n) {
@@ -500,8 +507,11 @@ class DepthAnythingSource(private val context: Context) {
 
     companion object {
         private const val ASSET_PATH = "depth_anything_v2_small.onnx"
-        private const val INPUT_W    = 518   // model native width
-        private const val INPUT_H    = 518   // model native height
+        // 364×280 (4:3, multiples of 14): ~2× faster than 518×392 (fp32, x86) for +0.006 AbsRel on
+        // TUM RGB-D (docs/benchmarks/da2-tum-rgbd.md). Revisit once timed on a phone.
+        private const val MODEL_LONG   = 364
+        private const val MODEL_SHORT  = 280
+        private const val MODEL_PIXELS = MODEL_LONG * MODEL_SHORT
         /** Dense output width — 16× more columns than the legacy 8-block grid. */
         const val DENSE_W   = 128
         /** Dense output height — 16× more rows than the legacy 6-block grid. */

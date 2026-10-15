@@ -1,0 +1,12 @@
+depth_anything_v2_small.onnx
+
+Depth Anything V2 Small — Lihe Yang et al., "Depth Anything V2", arXiv:2406.09414.
+Weights: https://huggingface.co/depth-anything/Depth-Anything-V2-Small-hf
+ONNX export used here: https://huggingface.co/onnx-community/depth-anything-v2-small
+(file onnx/model_quantized.onnx — int8 dynamic quantisation — renamed).
+
+Licensed under the Apache License, Version 2.0:
+https://www.apache.org/licenses/LICENSE-2.0
+
+Note: only the Small variant is Apache-2.0. The Base/Large/Giant variants are
+CC-BY-NC-4.0 and must not be bundled in a commercial build.

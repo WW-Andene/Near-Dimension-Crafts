@@ -7,7 +7,13 @@
   the Detection → Translation → Application layers, measurable success
   criteria, public-dataset benchmark plan and roadmap.
 
+- Depth Anything V2 Small (int8, Apache-2.0) bundled; the neural depth channel
+  now actually runs (it never loaded before — four separate bugs, see git log).
+- `tools/benchmark/da2_tum.py` and first results in `docs/benchmarks/`.
+
 ### Changed
+- DA2 input 518×518 squashed → 364×280, oriented like the camera frame
+  (portrait 280×364 in the app): ~2× faster on x86 fp32, and no longer distorts the image.
 - Package and application ID renamed `com.arhand` → `com.neardimension.handy`
   across all modules. **An install of the old `com.arhand` build is a separate
   app**: uninstall it; its local data (scans, takes) is not carried over.

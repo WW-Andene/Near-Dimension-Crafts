@@ -129,9 +129,9 @@ artifact (and the test/lint reports when a step fails).
 
 ### Optional model files
 
-- `app/src/main/assets/depth_anything_v2_small.ort` — Depth Anything v2 model for
-  the neural monocular depth channel. **Not included**; without it the channel
-  stays disabled and the other depth sources are used.
+- `depth/src/main/assets/depth_anything_v2_small.onnx` — Depth Anything V2 Small
+  (int8, 27 MB, Apache-2.0, see the NOTICE file next to it) for the neural
+  monocular depth channel. Bundled. Measurements: [`docs/benchmarks/`](docs/benchmarks/da2-tum-rgbd.md).
 
 ### Optional bundled 3D assets
 

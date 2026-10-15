@@ -76,9 +76,8 @@ Détection doit faire progresser ces chiffres, ou au moins ne pas les dégrader.
 
 ## Points ouverts
 
-- **Modèle Depth Anything v2.** Le canal neuronal est sans doute le meilleur
-  substitut au LiDAR sans ARCore, mais son fichier de poids est absent du dépôt. La
-  variante *Small* est sous licence Apache-2.0 et peut être convertie au format ONNX
-  Runtime (`.ort`). Il faut l'intégrer avant l'étape 0 pour mesurer ce canal.
+- **Modèle Depth Anything v2.** Intégré (variante Small int8, Apache-2.0) et mesuré :
+  voir [`benchmarks/da2-tum-rgbd.md`](benchmarks/da2-tum-rgbd.md). Seul, il reste loin des
+  objectifs (5–8 cm à 1 m) : la précision devra venir de la fusion.
 - **Canaux à fort coût pour l'utilisateur.** La photométrie fait clignoter la lampe,
   la lumière structurée fait flasher l'écran. Leur sort dépendra des mesures de l'étape 2.
