@@ -564,29 +564,16 @@ class MotionRecorder(
     private fun quaternionToZXY(q: Quaternion): Triple<Float, Float, Float> {
         val x = q.x; val y = q.y; val z = q.z; val w = q.w
 
-        // Convert quaternion → rotation matrix elements needed for ZXY decomposition.
-        // R = Rz * Rx * Ry  (intrinsic ZXY ≡ extrinsic YXZ)
-        //
-        // Key matrix elements (row-major):
-        //   R[2][1] =  2(xy + wz)         ← sinX
-        //   R[2][0] =  2(yz - wx)         ← -sinZ * cosX  (used for Z extraction)
-        //   R[2][2] =  1 - 2(x² + y²)     ← cosZ * cosX   (used for Z extraction)
-        //   R[1][1] =  1 - 2(x² + z²)     ← cosX * cosY   (used for Y extraction)
-        //   R[0][1] =  2(xy - wz)         ← sinX * sinY * cosZ + ...  <- not needed
-        //   R[0][0] =  ... not needed
-        //
-        // Standard ZXY extraction:
-        //   sinX        =  2(w*z + x*y)          (R[2][1])
-        //   cosX        =  sqrt(1 - sinX²)        (always non-negative; no quadrant issue for X)
-        //   sinZ/cosX   =  2(w*x - y*z) / cosX   (derived from R[2][0] = -sinZ*cosX)
-        //   cosZ/cosX   =  (1 - 2(x²+y²)) / cosX (derived from R[2][2] = cosZ*cosX)
-        //   sinY/cosX   = -2(w*y - x*z) / cosX   (derived from R[2][?])  <- handled via atan2 below
-        //   cosY/cosX   =  (1 - 2(y²+z²)) / cosX (derived from R[0][0])
-        //
-        // When cosX ≈ 0 (gimbal: X = ±90°) we fall back to setting Y = 0 and solving
-        // for Z from the remaining off-diagonal element — standard gimbal lock handling.
-
-        val sinX = (2f * (w * z + x * y)).coerceIn(-1f, 1f)
+        // R = Rz(ez) · Rx(ex) · Ry(ey), matching the BVH "Zrotation Xrotation Yrotation"
+        // channel order. Expanding the product gives:
+        //   R[2][1] =  sinX
+        //   R[2][0] = -cosX·sinY,   R[2][2] = cosX·cosY
+        //   R[0][1] = -sinZ·cosX,   R[1][1] = cosZ·cosX
+        // and from the quaternion:
+        //   R[2][1] = 2(yz + wx)
+        //   R[2][0] = 2(xz - wy),   R[2][2] = 1 - 2(x² + y²)
+        //   R[0][1] = 2(xy - wz),   R[1][1] = 1 - 2(x² + z²)
+        val sinX = (2f * (y * z + w * x)).coerceIn(-1f, 1f)
         val ex   = asin(sinX)
         val cosX = kotlin.math.cos(ex)
 
@@ -594,19 +581,12 @@ class MotionRecorder(
         val ez: Float
 
         if (cosX > 1e-5f) {
-            // Normal case
-            val sinZ = 2f * (w * x - y * z)
-            val cosZ = 1f - 2f * (x * x + y * y)
-            val sinY = -2f * (w * y - x * z)
-            val cosY = 1f - 2f * (y * y + z * z)
-            ez = atan2(sinZ, cosZ)
-            ey = atan2(sinY, cosY)
+            ey = atan2(-2f * (x * z - w * y), 1f - 2f * (x * x + y * y))
+            ez = atan2(-2f * (x * y - w * z), 1f - 2f * (x * x + z * z))
         } else {
-            // Gimbal lock: X = ±90°. Set Y = 0, solve Z from off-diagonal.
-            val sinZ = 2f * (w * x + y * z)
-            val cosZ = 1f - 2f * (x * x + z * z)
-            ez = atan2(sinZ, cosZ)
+            // Gimbal lock: X = ±90°. Fix Y = 0; then R[1][0] = sinZ, R[0][0] = cosZ.
             ey = 0f
+            ez = atan2(2f * (x * y + w * z), 1f - 2f * (y * y + z * z))
         }
 
         return Triple(ez * RAD_TO_DEG, ex * RAD_TO_DEG, ey * RAD_TO_DEG)

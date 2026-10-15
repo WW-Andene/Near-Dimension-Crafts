@@ -331,7 +331,7 @@ class QualityEngineTest {
 
     /** A well-formed hand (centred, spread, some Z variance) should exceed threshold. */
     @Test fun goodHandExceedsThreshold() {
-        val hand = syntheticHand(cx = 0f, cy = 0f)  // centred in normalised space
+        val hand = syntheticHand(cx = 0.5f, cy = 0.5f)  // centred in normalised [0,1] space
         val result = QualityEngine.evaluate(hand, claheContrast = 0.9f)
         assertTrue("Good hand should exceed QUALITY_THRESHOLD (${QualityEngine.QUALITY_THRESHOLD}); got ${result.score}",
             result.score >= QualityEngine.QUALITY_THRESHOLD)
@@ -375,8 +375,8 @@ class QualityEngineTest {
 
     /** Hand off-centre → positionScore lower. */
     @Test fun offCentreHandHasLowerScore() {
-        val centred  = syntheticHand(cx = 0f, cy = 0f)
-        val offEdge  = syntheticHand(cx = 0.45f, cy = 0.45f)  // near corner of normalised space
+        val centred  = syntheticHand(cx = 0.5f, cy = 0.5f)
+        val offEdge  = syntheticHand(cx = 0.95f, cy = 0.95f)  // near corner of normalised [0,1] space
         val rCentred = QualityEngine.evaluate(centred,  claheContrast = 0.8f)
         val rOffEdge = QualityEngine.evaluate(offEdge,  claheContrast = 0.8f)
         assertTrue(
@@ -440,6 +440,32 @@ class MotionRecorderTest {
     }
 
     /** Output angles are in degrees, so all values in [-180, 180]. */
+    /** Compose Rz·Rx·Ry from known angles, decompose, and recover the same angles. */
+    @Test fun arbitraryAnglesRoundTrip() {
+        fun axis(ax: Float, ay: Float, az: Float, deg: Float): Quaternion {
+            val h = Math.toRadians(deg.toDouble()).toFloat() / 2f
+            val s = kotlin.math.sin(h)
+            return Quaternion(ax * s, ay * s, az * s, kotlin.math.cos(h))
+        }
+        fun mul(a: Quaternion, b: Quaternion) = Quaternion(
+            a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+            a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+            a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
+            a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z
+        )
+        val cases = listOf(
+            Triple(30f, 20f, 45f), Triple(-60f, 35f, -15f),
+            Triple(120f, -40f, 75f), Triple(-170f, 10f, 160f)
+        )
+        for ((z, x, y) in cases) {
+            val q = mul(mul(axis(0f, 0f, 1f, z), axis(1f, 0f, 0f, x)), axis(0f, 1f, 0f, y))
+            val (ez, ex, ey) = toZXY(q)
+            assertNear(z, ez, tolerance = 0.05f)
+            assertNear(x, ex, tolerance = 0.05f)
+            assertNear(y, ey, tolerance = 0.05f)
+        }
+    }
+
     @Test fun anglesAreInDegreesRange() {
         // Test several quaternions
         val quats = listOf(
