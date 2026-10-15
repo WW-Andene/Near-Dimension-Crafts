@@ -139,7 +139,7 @@ class CrossChannelArbiter(private val blockCount: Int) {
             val base2 = i * CHANNEL_COUNT
             for (c in 0 until CHANNEL_COUNT) {
                 val d  = v[c] - mu
-                val wc = exp(-GATE_SCALE * (d * sc) * (d * sc)).toFloat()
+                val wc = exp(-GATE_SCALE * (d * sc) * (d * sc))
                 w[base2 + c] = wc
                 wSum += wc
             }

@@ -137,10 +137,10 @@ class ArCoreDepthSource(private val context: Context) : DepthSource {
 
             confImage  = try { frame.acquireRawDepthConfidenceImage() } catch (_: Throwable) { null }
 
-            val width  = depthImage!!.width
-            val height = depthImage!!.height
-            val depthBuf   = depthImage!!.planes[0].buffer.asShortBuffer()
-            val depthStride= depthImage!!.planes[0].rowStride
+            val width  = depthImage.width
+            val height = depthImage.height
+            val depthBuf   = depthImage.planes[0].buffer.asShortBuffer()
+            val depthStride= depthImage.planes[0].rowStride
             val confBuf    = confImage?.planes?.get(0)?.buffer
             val confStride = confImage?.planes?.get(0)?.rowStride ?: 0
 

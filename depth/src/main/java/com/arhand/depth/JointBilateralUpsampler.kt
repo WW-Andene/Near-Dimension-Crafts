@@ -75,13 +75,13 @@ class JointBilateralUpsampler {
                         if (depth <= 0f) continue
 
                         val dx = lrX - qx; val dy = lrY - qy
-                        val wSpatial = exp(-(dx * dx + dy * dy) * invS2).toFloat()
+                        val wSpatial = exp(-(dx * dx + dy * dy) * invS2)
 
                         val qgx  = (qx.toFloat() / inW * gW).toInt().coerceIn(0, gW - 1)
                         val qgy  = (qy.toFloat() / inH * gH).toInt().coerceIn(0, gH - 1)
                         val qLuma = lumaOf(guide.getPixel(qgx, qgy))
                         val dl    = pLuma - qLuma
-                        val wRange = exp(-(dl * dl) * invR2).toFloat()
+                        val wRange = exp(-(dl * dl) * invR2)
 
                         val w = wSpatial * wRange
                         wSum += w; dSum += w * depth

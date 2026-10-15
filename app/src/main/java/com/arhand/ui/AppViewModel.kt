@@ -482,37 +482,35 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                                 // Fused depth — snapshot from all active sources (ARCore + SfM + Photo)
                                 if (scanState.value.depthMode) {
                                     val fused = spatialLayer.fusedDepth
-                                    if (fused != null) {
-                                        val store = fused.store
-                                        val needed = store.snapshot()
-                                        if (needed >= 4) {
-                                            val buf = FloatArray(needed)
-                                            store.snapshot(buf)
-                                            val cloud = ArrayList<com.arhand.util.Vec3>(needed / 4)
-                                            var bi = 0
-                                            while (bi + 3 < needed) {
-                                                cloud.add(com.arhand.util.Vec3(buf[bi], buf[bi+1], buf[bi+2]))
-                                                bi += 4
-                                            }
-                                            // ENGINE_ARCHITECTURE.md §4.11 — hull built from real
-                                            // per-landmark world position (same ARCore frame as
-                                            // `cloud`), not MediaPipe's hand-centred world landmarks.
-                                            // Falls back to unfiltered when metric depth isn't
-                                            // available yet (not tracking / DA2 not XR-calibrated) —
-                                            // better than filtering against a wrong coordinate frame.
-                                            val hull = HandSegmentationMask.buildHullMetric(lms) { nx, ny ->
-                                                spatialLayer.unprojectLandmarkToWorld(nx, ny)
-                                            }
-                                            val masked = if (hull != null)
-                                                HandSegmentationMask.filterPointCloud(cloud, hull) else cloud
-                                            capturedDepthFrames.add(masked)
-                                            // HAND-8 — Integrate into TSDF volume for surface-aware reconstruction
-                                            val depthConf = (store.pointCount / 10000f).coerceIn(0.3f, 1f)
-                                            val camPos = spatialLayer.state.value.let {
-                                                com.arhand.util.Vec3(it.cameraWorldX, it.cameraWorldY, it.cameraWorldZ)
-                                            }
-                                            tsdfVolume.integrate(masked, depthConf, camPos)
+                                    val store = fused.store
+                                    val needed = store.snapshot()
+                                    if (needed >= 4) {
+                                        val buf = FloatArray(needed)
+                                        store.snapshot(buf)
+                                        val cloud = ArrayList<com.arhand.util.Vec3>(needed / 4)
+                                        var bi = 0
+                                        while (bi + 3 < needed) {
+                                            cloud.add(com.arhand.util.Vec3(buf[bi], buf[bi+1], buf[bi+2]))
+                                            bi += 4
                                         }
+                                        // ENGINE_ARCHITECTURE.md §4.11 — hull built from real
+                                        // per-landmark world position (same ARCore frame as
+                                        // `cloud`), not MediaPipe's hand-centred world landmarks.
+                                        // Falls back to unfiltered when metric depth isn't
+                                        // available yet (not tracking / DA2 not XR-calibrated) —
+                                        // better than filtering against a wrong coordinate frame.
+                                        val hull = HandSegmentationMask.buildHullMetric(lms) { nx, ny ->
+                                            spatialLayer.unprojectLandmarkToWorld(nx, ny)
+                                        }
+                                        val masked = if (hull != null)
+                                            HandSegmentationMask.filterPointCloud(cloud, hull) else cloud
+                                        capturedDepthFrames.add(masked)
+                                        // HAND-8 — Integrate into TSDF volume for surface-aware reconstruction
+                                        val depthConf = (store.pointCount / 10000f).coerceIn(0.3f, 1f)
+                                        val camPos = spatialLayer.state.value.let {
+                                            com.arhand.util.Vec3(it.cameraWorldX, it.cameraWorldY, it.cameraWorldZ)
+                                        }
+                                        tsdfVolume.integrate(masked, depthConf, camPos)
                                     }
                                 }
                             }
@@ -530,36 +528,34 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                             primary?.landmarks?.let { lms ->
                                 if (lms.size == 21) {
                                     val fused = spatialLayer.fusedDepth
-                                    if (fused != null) {
-                                        val store = fused.store
-                                        val needed = store.snapshot()
-                                        if (needed >= 4) {
-                                            val buf = FloatArray(needed)
-                                            store.snapshot(buf)
-                                            val cloud = ArrayList<com.arhand.util.Vec3>(needed / 4)
-                                            var bi = 0
-                                            while (bi + 3 < needed) {
-                                                cloud.add(com.arhand.util.Vec3(buf[bi], buf[bi+1], buf[bi+2]))
-                                                bi += 4
-                                            }
-                                            // ENGINE_ARCHITECTURE.md §4.11 — hull built from real
-                                            // per-landmark world position (same ARCore frame as
-                                            // `cloud`), not MediaPipe's hand-centred world landmarks.
-                                            // Falls back to unfiltered when metric depth isn't
-                                            // available yet (not tracking / DA2 not XR-calibrated) —
-                                            // better than filtering against a wrong coordinate frame.
-                                            val hull = HandSegmentationMask.buildHullMetric(lms) { nx, ny ->
-                                                spatialLayer.unprojectLandmarkToWorld(nx, ny)
-                                            }
-                                            val masked = if (hull != null)
-                                                HandSegmentationMask.filterPointCloud(cloud, hull) else cloud
-                                            capturedDepthFrames.add(masked)
-                                            val depthConf = (store.pointCount / 10000f).coerceIn(0.3f, 1f)
-                                            val camPos = spatialLayer.state.value.let {
-                                                com.arhand.util.Vec3(it.cameraWorldX, it.cameraWorldY, it.cameraWorldZ)
-                                            }
-                                            tsdfVolume.integrate(masked, depthConf, camPos)
+                                    val store = fused.store
+                                    val needed = store.snapshot()
+                                    if (needed >= 4) {
+                                        val buf = FloatArray(needed)
+                                        store.snapshot(buf)
+                                        val cloud = ArrayList<com.arhand.util.Vec3>(needed / 4)
+                                        var bi = 0
+                                        while (bi + 3 < needed) {
+                                            cloud.add(com.arhand.util.Vec3(buf[bi], buf[bi+1], buf[bi+2]))
+                                            bi += 4
                                         }
+                                        // ENGINE_ARCHITECTURE.md §4.11 — hull built from real
+                                        // per-landmark world position (same ARCore frame as
+                                        // `cloud`), not MediaPipe's hand-centred world landmarks.
+                                        // Falls back to unfiltered when metric depth isn't
+                                        // available yet (not tracking / DA2 not XR-calibrated) —
+                                        // better than filtering against a wrong coordinate frame.
+                                        val hull = HandSegmentationMask.buildHullMetric(lms) { nx, ny ->
+                                            spatialLayer.unprojectLandmarkToWorld(nx, ny)
+                                        }
+                                        val masked = if (hull != null)
+                                            HandSegmentationMask.filterPointCloud(cloud, hull) else cloud
+                                        capturedDepthFrames.add(masked)
+                                        val depthConf = (store.pointCount / 10000f).coerceIn(0.3f, 1f)
+                                        val camPos = spatialLayer.state.value.let {
+                                            com.arhand.util.Vec3(it.cameraWorldX, it.cameraWorldY, it.cameraWorldZ)
+                                        }
+                                        tsdfVolume.integrate(masked, depthConf, camPos)
                                     }
                                 }
                             }

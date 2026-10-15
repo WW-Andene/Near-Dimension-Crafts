@@ -1,6 +1,9 @@
 package com.arhand.depth
 
+import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.ImageFormat
@@ -15,6 +18,7 @@ import android.hardware.camera2.CaptureRequest
 import android.media.ImageReader
 import android.os.Handler
 import android.os.HandlerThread
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -109,7 +113,11 @@ class StereoDepthSource(private val context: Context) {
      * Probe Camera2 for a usable secondary camera and open it.
      * Safe to call when no secondary camera is present — sets [isAvailable] = false.
      */
+    // Lint can't see the early-return permission guard below as covering openCamera.
+    @SuppressLint("MissingPermission")
     fun start() {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA)
+            != PackageManager.PERMISSION_GRANTED) return
         try {
             val cm = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager ?: return
             cameraManager = cm

@@ -137,6 +137,7 @@ fun ModelViewerScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.TopCenter)
+                .safeDrawingPadding()
                 .padding(top = 48.dp, start = 16.dp, end = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -160,6 +161,7 @@ fun ModelViewerScreen(
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
+                .safeDrawingPadding()
                 .padding(bottom = 48.dp)
                 .border(1.dp, Color.White.copy(0.35f), RoundedCornerShape(8.dp))
                 .clip(RoundedCornerShape(8.dp))

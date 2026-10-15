@@ -85,6 +85,7 @@ fun OnboardingScreen(onDismiss: () -> Unit) {
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
+            .safeDrawingPadding()
     ) {
         HorizontalPager(
             state    = pagerState,

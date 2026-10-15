@@ -229,13 +229,6 @@ object TextureBaker {
         val minZ: Float, val maxZ: Float
     )
 
-    private operator fun Bounds.component1() = minX
-    private operator fun Bounds.component2() = maxX
-    private operator fun Bounds.component3() = minY
-    private operator fun Bounds.component4() = maxY
-    private operator fun Bounds.component5() = minZ
-    private operator fun Bounds.component6() = maxZ
-
     private fun meshBounds(pos: FloatArray): Bounds {
         var minX = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE
         var minY = Float.MAX_VALUE; var maxY = -Float.MAX_VALUE

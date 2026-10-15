@@ -263,7 +263,7 @@ class SfMDepthSource(private val context: Context) : DepthSource {
             }
             sc[y * W + x] = a * b - c * c - k * (a + b) * (a + b)
         }
-        val mx = sc.max() ?: 0f
+        val mx = sc.max()
         val thr = 5e-5f * mx
         val pts = ArrayList<IntArray>(maxN * 2)
         for (y in R + 1 until H - R - 1) for (x in R + 1 until W - R - 1) {

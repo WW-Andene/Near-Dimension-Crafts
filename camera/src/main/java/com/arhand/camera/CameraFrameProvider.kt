@@ -3,6 +3,8 @@ package com.arhand.camera
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Matrix
+import androidx.annotation.OptIn
+import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageProxy
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -51,6 +53,7 @@ class CameraFrameProvider {
     private val rotatedCanvasPool = arrayOfNulls<Canvas>(POOL_SIZE)
     private var rotatedPoolIndex = 0
 
+    @OptIn(ExperimentalGetImage::class)
     fun onImageProxy(proxy: ImageProxy) {
         try {
             val image  = proxy.image ?: return

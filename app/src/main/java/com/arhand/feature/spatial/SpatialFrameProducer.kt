@@ -452,8 +452,7 @@ class SpatialFrameProducer(
                 // Body-wrist world alignment
                 if (bodyEnabled && bodyResult != null && bodyResult.confidence > 0.5f) {
                     val bw = if (primary.slotIndex == 1) bodyResult.wristLeft else bodyResult.wristRight
-                    if (bw != null) constrained.copy(wristTransform = constrained.wristTransform.copy(position = bw))
-                    else constrained
+                    constrained.copy(wristTransform = constrained.wristTransform.copy(position = bw))
                 } else constrained
             }
             Pair(spatial, retarget)
@@ -565,7 +564,7 @@ class SpatialFrameProducer(
                 val fx  = bxf - bxi; val fy  = byf - byi
                 val i00 = byi * bW + bxi;       val i10 = byi * bW + (bxi + 1)
                 val i01 = (byi + 1) * bW + bxi; val i11 = (byi + 1) * bW + (bxi + 1)
-                if (slRes!!.depth.size > i11) {
+                if (slRes.depth.size > i11) {
                     val z = slRes.depth[i00]*(1f-fx)*(1f-fy) + slRes.depth[i10]*fx*(1f-fy) +
                             slRes.depth[i01]*(1f-fx)*fy       + slRes.depth[i11]*fx*fy
                     val gx = if (slRes.gradX.size > i11)

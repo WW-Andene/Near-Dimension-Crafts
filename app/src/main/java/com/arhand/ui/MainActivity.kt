@@ -5,6 +5,7 @@ import android.opengl.GLSurfaceView
 import android.os.Bundle
 import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -87,6 +88,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         setContent {
             androidx.compose.runtime.CompositionLocalProvider(
                 androidx.lifecycle.compose.LocalLifecycleOwner provides this@MainActivity
@@ -238,110 +240,115 @@ fun HandyApp(
         // ENGINE_ARCHITECTURE.md §6.2 — capture flash, fires once per accepted pose.
         WhiteScreenOverlay(trigger = uiState.captureFlashToken)
 
-        if (!uiState.showSplash && !uiState.showOnboarding) {
-            HudOverlay(
-                perf             = perfState,
-                renderMode       = uiState.renderMode.name,
-                torchOn          = uiState.torchOn,
-                landmarkCount    = landmarkCount,
-                activeSlots      = activeSlotsStr,
-                activeGesture    = activeGesture,
-                handSide         = handSide,
-                oscHealth        = oscHealthState,
-                spatialState     = spatialState,
-                slCalibProgress  = if (scanDomainState.depthMode)
-                                       scanDomainState.slCalibrationProgress else -1f,
-                slDrifting       = scanDomainState.slDrifting
-            )
-        }
-
-        if (uiState.scanActive && !scanDomainState.freeformActive) {
-            ScanOverlay(status = scanStatus, onCancel = { vm.cancelScan() })
-        }
-
-        // LIMIT-2 — Freeform scan overlay
-        if (uiState.scanActive && scanDomainState.freeformActive) {
-            FreeformScanOverlay(
-                status   = freeformStatus,
-                onFinish = { vm.finishFreeformScan() },
-                onCancel = { vm.cancelFreeformScan() }
-            )
-        }
-
-        // Global camera flip — always visible regardless of scan or overlay state
-        if (!uiState.showSplash && !uiState.showOnboarding) {
-            androidx.compose.material3.IconButton(
-                onClick  = vm::switchCamera,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 16.dp, end = 16.dp)
-                    .background(Color(0x66000000), shape = RoundedCornerShape(8.dp))
-            ) {
-                Text(
-                    text     = if (uiState.isFrontCamera) "REAR" else "FRONT",
-                    color    = Color.White,
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
+        // HUD, scan overlays and toolbar stay clear of system bars and display cutouts
+        // (edge-to-edge is enforced from targetSdk 35). Full-screen layers around this
+        // block (GL surface, flash, splash, settings, modals) stay full-bleed.
+        Box(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
+            if (!uiState.showSplash && !uiState.showOnboarding) {
+                HudOverlay(
+                    perf             = perfState,
+                    renderMode       = uiState.renderMode.name,
+                    torchOn          = uiState.torchOn,
+                    landmarkCount    = landmarkCount,
+                    activeSlots      = activeSlotsStr,
+                    activeGesture    = activeGesture,
+                    handSide         = handSide,
+                    oscHealth        = oscHealthState,
+                    spatialState     = spatialState,
+                    slCalibProgress  = if (scanDomainState.depthMode)
+                                           scanDomainState.slCalibrationProgress else -1f,
+                    slDrifting       = scanDomainState.slDrifting
                 )
             }
-        }
 
-        if (!uiState.showSplash && !uiState.showOnboarding && !uiState.scanActive) {
-            Column(modifier = Modifier.align(Alignment.BottomCenter)) {
+            if (uiState.scanActive && !scanDomainState.freeformActive) {
+                ScanOverlay(status = scanStatus, onCancel = { vm.cancelScan() })
+            }
 
-                when (uiState.workflowMode) {
-                    WorkflowMode.STREAM -> StreamPanel(
-                        isStreaming         = streamState.isStreaming,
-                        oscHost             = streamState.host,
-                        oscPort             = streamState.port,
-                        oscSchema           = streamState.schema,
-                        oscHealth           = oscHealthState,
-                        discoveredReceivers = vm.oscDiscovery.found.collectAsStateWithLifecycle().value,
-                        isDiscovering       = vm.oscDiscovery.scanning.collectAsStateWithLifecycle().value,
-                        onToggle            = {
-                            if (streamState.isStreaming) vm.stopOscStreaming()
-                            else vm.startOscStreaming(streamState.host, streamState.port, streamState.schema)
-                        },
-                        onDiscoverToggle    = {
-                            if (vm.oscDiscovery.scanning.value) vm.oscDiscovery.stop()
-                            else vm.oscDiscovery.start()
-                        },
-                        onSelectReceiver    = { rec ->
-                            vm.oscManager.setHost(rec.host)
-                            vm.oscManager.setPort(rec.port)
-                            vm.oscDiscovery.stop()
-                        }
-                    )
-                    WorkflowMode.RECORD -> RecordPanel(
-                        isRecording      = recordingState.isRecording,
-                        currentTakeLabel = recordingState.currentLabel,
-                        takes            = recordingState.takes,
-                        onToggle         = {
-                            if (recordingState.isRecording) vm.stopRecordingAndExport()
-                            else vm.startRecording()
-                        },
-                        onLabelChange    = vm::setTakeLabel,
-                        onBrowseTakes    = { showTakesLibrary = true }
-                    )
-                    else -> {}
-                }
-
-                BottomToolbar(
-                    workflowMode  = uiState.workflowMode,
-                    isStreaming   = streamState.isStreaming,
-                    isRecording   = recordingState.isRecording,
-                    isScanActive  = uiState.scanActive,
-                    onSettings    = { vm.setWorkflowMode(WorkflowMode.SETTINGS) },
-                    onAssets      = { showAssetPicker = true },
-                    onCalibrate   = { showCalibrateSheet = true },
-                    onStream      = { vm.setWorkflowMode(
-                        if (uiState.workflowMode == WorkflowMode.STREAM) WorkflowMode.IDLE
-                        else WorkflowMode.STREAM) },
-                    onRecord      = { vm.setWorkflowMode(
-                        if (uiState.workflowMode == WorkflowMode.RECORD) WorkflowMode.IDLE
-                        else WorkflowMode.RECORD) }
+            // LIMIT-2 — Freeform scan overlay
+            if (uiState.scanActive && scanDomainState.freeformActive) {
+                FreeformScanOverlay(
+                    status   = freeformStatus,
+                    onFinish = { vm.finishFreeformScan() },
+                    onCancel = { vm.cancelFreeformScan() }
                 )
+            }
+
+            // Global camera flip — always visible regardless of scan or overlay state
+            if (!uiState.showSplash && !uiState.showOnboarding) {
+                androidx.compose.material3.IconButton(
+                    onClick  = vm::switchCamera,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 16.dp, end = 16.dp)
+                        .background(Color(0x66000000), shape = RoundedCornerShape(8.dp))
+                ) {
+                    Text(
+                        text     = if (uiState.isFrontCamera) "REAR" else "FRONT",
+                        color    = Color.White,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            if (!uiState.showSplash && !uiState.showOnboarding && !uiState.scanActive) {
+                Column(modifier = Modifier.align(Alignment.BottomCenter)) {
+
+                    when (uiState.workflowMode) {
+                        WorkflowMode.STREAM -> StreamPanel(
+                            isStreaming         = streamState.isStreaming,
+                            oscHost             = streamState.host,
+                            oscPort             = streamState.port,
+                            oscSchema           = streamState.schema,
+                            oscHealth           = oscHealthState,
+                            discoveredReceivers = vm.oscDiscovery.found.collectAsStateWithLifecycle().value,
+                            isDiscovering       = vm.oscDiscovery.scanning.collectAsStateWithLifecycle().value,
+                            onToggle            = {
+                                if (streamState.isStreaming) vm.stopOscStreaming()
+                                else vm.startOscStreaming(streamState.host, streamState.port, streamState.schema)
+                            },
+                            onDiscoverToggle    = {
+                                if (vm.oscDiscovery.scanning.value) vm.oscDiscovery.stop()
+                                else vm.oscDiscovery.start()
+                            },
+                            onSelectReceiver    = { rec ->
+                                vm.oscManager.setHost(rec.host)
+                                vm.oscManager.setPort(rec.port)
+                                vm.oscDiscovery.stop()
+                            }
+                        )
+                        WorkflowMode.RECORD -> RecordPanel(
+                            isRecording      = recordingState.isRecording,
+                            currentTakeLabel = recordingState.currentLabel,
+                            takes            = recordingState.takes,
+                            onToggle         = {
+                                if (recordingState.isRecording) vm.stopRecordingAndExport()
+                                else vm.startRecording()
+                            },
+                            onLabelChange    = vm::setTakeLabel,
+                            onBrowseTakes    = { showTakesLibrary = true }
+                        )
+                        else -> {}
+                    }
+
+                    BottomToolbar(
+                        workflowMode  = uiState.workflowMode,
+                        isStreaming   = streamState.isStreaming,
+                        isRecording   = recordingState.isRecording,
+                        isScanActive  = uiState.scanActive,
+                        onSettings    = { vm.setWorkflowMode(WorkflowMode.SETTINGS) },
+                        onAssets      = { showAssetPicker = true },
+                        onCalibrate   = { showCalibrateSheet = true },
+                        onStream      = { vm.setWorkflowMode(
+                            if (uiState.workflowMode == WorkflowMode.STREAM) WorkflowMode.IDLE
+                            else WorkflowMode.STREAM) },
+                        onRecord      = { vm.setWorkflowMode(
+                            if (uiState.workflowMode == WorkflowMode.RECORD) WorkflowMode.IDLE
+                            else WorkflowMode.RECORD) }
+                    )
+                }
             }
         }
 
@@ -857,6 +864,7 @@ private fun TakesLibrarySheet(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xEE080A0F))
+            .safeDrawingPadding()
     ) {
         Column(
             modifier = Modifier
@@ -910,8 +918,10 @@ private fun TakeRow(
     onShare:  () -> Unit,
     onDelete: () -> Unit
 ) {
-    val date = java.text.SimpleDateFormat("MMM d  HH:mm", java.util.Locale.getDefault())
-        .format(java.util.Date(take.takenAtMs))
+    val locale = androidx.compose.ui.platform.LocalConfiguration.current.locales[0]
+    val date = remember(take.takenAtMs, locale) {
+        java.text.SimpleDateFormat("MMM d  HH:mm", locale).format(java.util.Date(take.takenAtMs))
+    }
 
     Row(
         modifier = Modifier
@@ -1036,6 +1046,7 @@ private fun CalibrateSheet(
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .background(Color(0xFF1A1A1A))
+                .navigationBarsPadding()
                 .padding(24.dp)
                 .clickable(indication = null,
                     interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },

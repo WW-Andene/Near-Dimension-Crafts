@@ -82,6 +82,7 @@ fun SettingsScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF080A0F))
+            .safeDrawingPadding()
     ) {
         Column(
             modifier = Modifier
