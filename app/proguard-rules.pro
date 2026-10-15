@@ -14,3 +14,9 @@
 -keepclassmembers class * extends androidx.datastore.preferences.protobuf.GeneratedMessageLite {
     <fields>;
 }
+
+# MediaPipe 1.x — optional references the app never exercises (LiteRT-LM image
+# embedder backend, graph profiler/template protos). Not on the classpath.
+-dontwarn com.google.ai.edge.litertlm.**
+-dontwarn com.google.mediapipe.proto.CalculatorProfileProto$*
+-dontwarn com.google.mediapipe.proto.GraphTemplateProto$*

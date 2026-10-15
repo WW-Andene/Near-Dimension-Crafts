@@ -1,4 +1,22 @@
 plugins {
-    id 'com.android.application' version '8.4.0' apply false
-    id 'org.jetbrains.kotlin.android' version '1.9.24' apply false
+    alias(libs.plugins.android.application) apply false
+    alias(libs.plugins.android.library) apply false
+    alias(libs.plugins.kotlin.compose) apply false
+}
+
+// Shared Android configuration for every library module. Each module's own
+// build.gradle only declares its namespace and dependencies.
+subprojects {
+    plugins.withId('com.android.library') {
+        android {
+            compileSdk libs.versions.compileSdk.get().toInteger()
+            defaultConfig {
+                minSdk libs.versions.minSdk.get().toInteger()
+            }
+            compileOptions {
+                sourceCompatibility JavaVersion.VERSION_17
+                targetCompatibility JavaVersion.VERSION_17
+            }
+        }
+    }
 }
